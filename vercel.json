@@ -1,0 +1,22 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "crons": [
+    {
+      "path": "/api/cron/streak-reminder",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/challenge-reminder",
+      "schedule": "0 18 * * *"
+    },
+    {
+      "path": "/api/cron/challenge-weekly",
+      "schedule": "0 13 * * 1"
+    },
+    {
+      "path": "/api/cron/buddy-rematch",
+      "schedule": "0 12 * * *"
+    }
+  ]
+}

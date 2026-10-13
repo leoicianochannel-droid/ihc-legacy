@@ -1,0 +1,202 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─────────────────────────────────────────────────────────────
+   Infinity Hoop Brand System
+   Derived from the existing brand: hot-pink / lavender / powder-blue
+   gradient hero with bold black wordmark on white.
+   ───────────────────────────────────────────────────────────── */
+
+@layer base {
+  :root {
+    /* Neutrals */
+    --background: 0 0% 100%;           /* #FFFFFF pure white */
+    --foreground: 0 0% 7%;             /* #111111 near-black */
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 7%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 7%;
+
+    /* Brand: deep rose primary */
+    --primary: 337 97% 42%;            /* #d10352 */
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary: lavender */
+    --secondary: 267 40% 80%;          /* ~#C8B4E3 */
+    --secondary-foreground: 0 0% 4%;
+
+    /* Accent: powder blue */
+    --accent: 207 54% 82%;             /* ~#B8D4E8 */
+    --accent-foreground: 0 0% 4%;
+
+    /* Supporting */
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 91%;
+    --input: 0 0% 91%;
+    --ring: 337 97% 42%;
+
+    /* Brand-semantic tokens */
+    --hoop-pink: 337 97% 42%;          /* brand rose */
+    --hoop-cream: 0 0% 100%;
+    --hoop-charcoal: 0 0% 4%;
+    --hoop-gold: 40 76% 56%;           /* achievement gold */
+
+    --radius: 0.75rem;
+  }
+
+  /* Dark mode (reserved — default to light for wellness audience) */
+  .dark {
+    --background: 0 0% 4%;
+    --foreground: 40 14% 98%;
+    --card: 0 0% 8%;
+    --card-foreground: 40 14% 98%;
+    --popover: 0 0% 8%;
+    --popover-foreground: 40 14% 98%;
+    --primary: 337 97% 55%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 267 40% 30%;
+    --secondary-foreground: 40 14% 98%;
+    --accent: 207 54% 30%;
+    --accent-foreground: 40 14% 98%;
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 60%;
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 40 14% 98%;
+    --border: 0 0% 16%;
+    --input: 0 0% 16%;
+    --ring: 337 97% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@layer components {
+  .hoop-gradient {
+    background-color: hsl(var(--primary));
+  }
+
+  .hoop-gradient-bold {
+    background-color: hsl(var(--primary));
+  }
+
+  .hoop-text-gradient {
+    color: hsl(var(--primary));
+  }
+
+  .hoop-card {
+    @apply rounded-2xl border bg-card p-6 shadow-sm transition-all hover:shadow-md;
+  }
+
+  .hoop-glow {
+    box-shadow: 0 0 40px -10px hsl(337 97% 42% / 0.35);
+  }
+
+  /* Long-form legal / marketing copy. Used on Terms, Privacy, Cookies,
+     Community Guidelines. Mirrors a minimal version of @tailwindcss/typography
+     without adding the dep. */
+  .legal-prose {
+    @apply text-base leading-relaxed;
+  }
+  .legal-prose h2 {
+    @apply mt-10 mb-2 font-display text-2xl font-bold;
+  }
+  .legal-prose h3 {
+    @apply mt-6 mb-2 font-display text-lg font-bold;
+  }
+  .legal-prose p {
+    @apply my-3;
+  }
+  .legal-prose ul {
+    @apply my-3 list-disc space-y-1 pl-6;
+  }
+  .legal-prose ol {
+    @apply my-3 list-decimal space-y-1 pl-6;
+  }
+  .legal-prose a {
+    @apply font-semibold text-primary underline-offset-2 hover:underline;
+  }
+  .legal-prose strong {
+    @apply font-semibold text-foreground;
+  }
+  .legal-prose table {
+    @apply my-4 w-full border-collapse text-sm;
+  }
+  .legal-prose th,
+  .legal-prose td {
+    @apply border-b border-border px-3 py-2 text-left align-top;
+  }
+  .legal-prose th {
+    @apply font-semibold text-foreground;
+  }
+  .legal-prose blockquote {
+    @apply my-4 border-l-4 border-primary/40 bg-primary/5 px-4 py-2 italic;
+  }
+}
+
+@media print {
+  /* Hide everything except the recipe content */
+  [data-sidebar], nav, header, footer,
+  [data-print-hide] {
+    display: none !important;
+  }
+
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 12pt;
+  }
+
+  [data-print-recipe] {
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Show the recipe photo but cap its height */
+  [data-print-recipe] img {
+    max-height: 220px;
+    width: 100%;
+    object-fit: cover;
+    border-radius: 8px;
+    margin-bottom: 16px;
+  }
+
+  /* Stat cards: display inline */
+  [data-print-recipe] .grid {
+    display: flex !important;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* Ingredients + steps side by side */
+  [data-print-recipe] .md\:grid-cols-\[1fr_2fr\] {
+    display: grid !important;
+    grid-template-columns: 1fr 2fr !important;
+    gap: 24px;
+  }
+
+  /* No shadows or borders that look bad on paper */
+  * {
+    box-shadow: none !important;
+  }
+
+  a {
+    text-decoration: none !important;
+    color: inherit !important;
+  }
+}
