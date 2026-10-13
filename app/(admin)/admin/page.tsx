@@ -20,6 +20,14 @@ import {
   getActivityBreakdown,
   getCommunityHealth,
   getDailyActiveMembers,
+  getChurnBySegment,
+  parseSegment,
+  parseDateRange,
+  RANGE_PRESETS,
+  type DateRange,
+  ENGAGED_DAYS,
+  type MemberSegment,
+  type SegmentChurn,
 } from "@/lib/admin-metrics";
 import { BarSeries } from "@/components/admin/charts";
 import { FoundingMemberBonusButton } from "./founding-member-bonus-button";
@@ -49,15 +57,71 @@ function monthLabel(ym: string) {
   });
 }
 
-export default async function AdminOverview() {
-  const [{ userId }, m, h, daily, pulse, breakdown] = await Promise.all([
+const SEGMENT_OPTIONS: { value: MemberSegment; label: string; hint: string }[] = [
+  { value: "all", label: "All members", hint: "Everyone who joined the community app" },
+  { value: "participated", label: "Participated", hint: "Did at least one thing in the app" },
+  {
+    value: "engaged",
+    label: "Engaged",
+    hint: `Active on ${ENGAGED_DAYS}+ different days in their first 30 days`,
+  },
+  { value: "never", label: "Never participated", hint: "Joined but never did anything in the app" },
+];
+
+const BUCKET_LABELS: Record<SegmentChurn["bucket"], { label: string; hint: string }> = {
+  never: { label: "Never participated", hint: "0 days active" },
+  light: {
+    label: "Tried it",
+    hint: `1–${ENGAGED_DAYS - 1} days active in first 30 days`,
+  },
+  engaged: {
+    label: "Engaged",
+    hint: `${ENGAGED_DAYS}+ days active in first 30 days`,
+  },
+  participated: { label: "All who participated", hint: "Tried it + engaged" },
+};
+
+type Params = { segment?: string; range?: string; from?: string; to?: string };
+
+// Builds an /admin URL that keeps the current segment + date range, with
+// `changes` applied on top.
+function adminHref(segment: MemberSegment, range: DateRange, changes: Params) {
+  const q = new URLSearchParams();
+  const seg = changes.segment ?? segment;
+  if (seg !== "all") q.set("segment", seg);
+  if (changes.range && changes.range !== "custom") {
+    if (changes.range !== "30d") q.set("range", changes.range);
+  } else if (range.preset == null) {
+    q.set("range", "custom");
+    q.set("from", range.fromInput);
+    q.set("to", range.toInput);
+  } else if (range.preset !== "30d") {
+    q.set("range", range.preset);
+  }
+  const qs = q.toString();
+  return qs ? `/admin?${qs}` : "/admin";
+}
+
+export default async function AdminOverview({
+  searchParams,
+}: {
+  searchParams: Promise<Params>;
+}) {
+  const sp = await searchParams;
+  const segment = parseSegment(sp.segment);
+  const range = parseDateRange(sp);
+  const segmentLabel = SEGMENT_OPTIONS.find((o) => o.value === segment)!;
+  const [{ userId }, m, h, daily, pulse, breakdown, bySegment] = await Promise.all([
     auth(),
     getOverviewMetrics(),
-    getCommunityHealth(6),
-    getDailyActiveMembers(30),
+    getCommunityHealth(range, segment),
+    getDailyActiveMembers(range, segment),
     getCommunityPulse(),
-    getActivityBreakdown(30),
+    getActivityBreakdown(range),
+    getChurnBySegment(range),
   ]);
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const rangeLower = range.preset ? range.label.toLowerCase() : range.label;
 
   let firstName: string | null = null;
   if (userId) {
@@ -115,43 +179,115 @@ export default async function AdminOverview() {
         </Card>
       </div>
 
+      {/* ── Filters: date range + participation group ───────────────── */}
+      <Card className="mt-8 shadow-sm">
+        <CardContent className="space-y-4 p-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="w-14 text-xs font-semibold text-muted-foreground">Dates:</span>
+            {RANGE_PRESETS.map((p) => (
+              <Pill
+                key={p.value}
+                href={adminHref(segment, range, { range: p.value })}
+                active={range.preset === p.value}
+              >
+                {p.label}
+              </Pill>
+            ))}
+            <form method="get" action="/admin" className="flex flex-wrap items-center gap-2">
+              {segment !== "all" && <input type="hidden" name="segment" value={segment} />}
+              <input type="hidden" name="range" value="custom" />
+              <input
+                type="date"
+                name="from"
+                defaultValue={range.fromInput}
+                aria-label="From date"
+                className={`h-8 rounded-full border bg-background px-3 text-xs ${
+                  range.preset == null ? "border-primary" : ""
+                }`}
+              />
+              <span className="text-xs text-muted-foreground">to</span>
+              <input
+                type="date"
+                name="to"
+                defaultValue={range.toInput}
+                aria-label="To date"
+                className={`h-8 rounded-full border bg-background px-3 text-xs ${
+                  range.preset == null ? "border-primary" : ""
+                }`}
+              />
+              <button
+                type="submit"
+                className="h-8 rounded-full border bg-background px-3 text-xs font-semibold hover:border-primary/40"
+              >
+                Apply
+              </button>
+            </form>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="w-14 text-xs font-semibold text-muted-foreground">Show:</span>
+            {SEGMENT_OPTIONS.map((o) => (
+              <Pill
+                key={o.value}
+                href={adminHref(segment, range, { segment: o.value })}
+                active={o.value === segment}
+                title={o.hint}
+              >
+                {o.label}
+              </Pill>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            <b className="text-foreground">{range.label}</b> ({range.days} days).{" "}
+            {segment === "all"
+              ? "Showing every community member."
+              : `Showing only ${segmentLabel.label.toLowerCase()} members (${segmentLabel.hint.toLowerCase()}): ${h.members.toLocaleString()} people.`}{" "}
+            Cards marked &ldquo;now&rdquo; are a snapshot of today and don&apos;t
+            change with the dates.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* ── Does participating keep people around? ─────────────────────── */}
+      <SectionTitle>Do members who use the app churn less?</SectionTitle>
+      <SegmentChurnCard rows={bySegment} active={segment} rangeLabel={rangeLower} />
+
       {/* ── Are people staying? ──────────────────────────────────── */}
       <SectionTitle>Are members staying?</SectionTitle>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi
           icon={<Wallet className="size-5" />}
           tint="green"
-          label="Paying community members"
+          label="Paying community members (now)"
           value={h.paying.toLocaleString()}
           delta={`${h.trialing} trialing · ${h.pastDue} past due · ${h.comp} comped`}
         />
         <Kpi
           icon={<TrendingDown className="size-5" />}
           tint={
-            h.churnRate30Pct == null
+            h.churnRatePct == null
               ? "neutral"
-              : h.churnRate30Pct > 8
+              : h.churnRatePct > 8
                 ? "rose"
-                : h.churnRate30Pct > 4
+                : h.churnRatePct > 4
                   ? "amber"
                   : "green"
           }
-          label="Churn (last 30 days)"
-          value={h.churnRate30Pct == null ? "—" : `${h.churnRate30Pct}%`}
-          delta={`${h.churnedLast30.toLocaleString()} members canceled`}
+          label="Churn (selected dates)"
+          value={h.churnRatePct == null ? "—" : `${h.churnRatePct}%`}
+          delta={`${h.churnedInRange.toLocaleString()} of ${(h.payingAtStart + h.newPayingInRange).toLocaleString()} paying members canceled`}
         />
         <Kpi
           icon={<Users className="size-5" />}
           tint="primary"
-          label="New paying (last 30 days)"
-          value={h.newPayingLast30.toLocaleString()}
-          delta={`Net ${h.netChangeLast30 >= 0 ? "+" : ""}${h.netChangeLast30.toLocaleString()} after churn`}
-          deltaTone={h.netChangeLast30 >= 0 ? "positive" : "negative"}
+          label="New paying (selected dates)"
+          value={h.newPayingInRange.toLocaleString()}
+          delta={`Net ${h.netChangeInRange >= 0 ? "+" : ""}${h.netChangeInRange.toLocaleString()} after churn`}
+          deltaTone={h.netChangeInRange >= 0 ? "positive" : "negative"}
         />
         <Kpi
           icon={<Heart className="size-5" />}
           tint="gold"
-          label="Still here (all time)"
+          label="Still here (all time, now)"
           value={share(h.paying, everPaid)}
           delta={`${h.paying.toLocaleString()} staying · ${h.churnedAllTime.toLocaleString()} churned`}
         />
@@ -163,14 +299,14 @@ export default async function AdminOverview() {
         <Kpi
           icon={<Activity className="size-5" />}
           tint="primary"
-          label="Active today"
+          label="Active today (now)"
           value={h.dau.toLocaleString()}
           delta={`${share(h.dau, h.paying)} of paying members`}
         />
         <Kpi
           icon={<Trophy className="size-5" />}
           tint="green"
-          label="Daily regulars"
+          label="Daily regulars (now)"
           value={h.dailyRegulars.toLocaleString()}
           delta={`Active 5+ of the last 7 days · ${share(h.dailyRegulars, h.paying)}`}
           deltaTone="positive"
@@ -178,14 +314,14 @@ export default async function AdminOverview() {
         <Kpi
           icon={<Activity className="size-5" />}
           tint="green"
-          label="Active this week / month"
-          value={`${h.wau.toLocaleString()} / ${h.mau.toLocaleString()}`}
-          delta={`${share(h.wau, h.paying)} weekly · ${share(h.mau, h.paying)} monthly`}
+          label="Used the app (selected dates)"
+          value={h.activeInRange.toLocaleString()}
+          delta={`${h.activePayingInRange.toLocaleString()} still paying · ${h.wau.toLocaleString()} active this week`}
         />
         <Kpi
           icon={<AlertTriangle className="size-5" />}
           tint="rose"
-          label="Paying but not using it"
+          label="Paying but not using it (now)"
           value={(h.goneQuiet14 + h.neverActive).toLocaleString()}
           delta={`${h.goneQuiet14.toLocaleString()} quiet 14+ days · ${h.neverActive.toLocaleString()} never active`}
           deltaTone="negative"
@@ -213,11 +349,11 @@ export default async function AdminOverview() {
                 </tr>
               </thead>
               <tbody>
-                {h.churnByMonth.map((r, i) => (
+                {h.churnByMonth.map((r) => (
                   <tr key={r.month} className="border-t">
                     <td className="py-2">
                       {monthLabel(r.month)}
-                      {i === 0 && (
+                      {r.month === currentMonth && (
                         <span className="ml-1 text-xs text-muted-foreground">(so far)</span>
                       )}
                     </td>
@@ -232,7 +368,8 @@ export default async function AdminOverview() {
               </tbody>
             </table>
             <p className="mt-3 text-[11px] text-muted-foreground">
-              Churn = members who canceled that month ÷ members paying on the 1st.
+              Churn = members who canceled that month ÷ (paying on the 1st + joined
+              that month).
             </p>
           </CardContent>
         </Card>
@@ -241,7 +378,7 @@ export default async function AdminOverview() {
           <CardContent className="p-6">
             <div className="flex items-baseline justify-between">
               <h3 className="font-semibold">Retention by join month</h3>
-              <span className="text-xs text-muted-foreground">As of today</span>
+              <span className="text-xs text-muted-foreground">Joined {rangeLower}</span>
             </div>
             <table className="mt-4 w-full text-sm">
               <thead>
@@ -287,8 +424,8 @@ export default async function AdminOverview() {
       <Card className="mt-6 shadow-sm">
         <CardContent className="p-6">
           <div className="flex items-baseline justify-between">
-            <h3 className="font-semibold">Paying members active each day</h3>
-            <span className="text-xs text-muted-foreground">Last 30 days</span>
+            <h3 className="font-semibold">Members active each day</h3>
+            <span className="text-xs text-muted-foreground">{range.label}</span>
           </div>
           <div className="mt-4">
             <BarSeries
@@ -307,7 +444,7 @@ export default async function AdminOverview() {
               <h3 className="flex items-center gap-2 font-semibold">
                 <span className="text-primary">⚡</span> Engagement by Type
               </h3>
-              <span className="text-xs text-muted-foreground">Last 30 days</span>
+              <span className="text-xs text-muted-foreground">{range.label}</span>
             </div>
 
             <div className="mt-5 space-y-4">
@@ -426,6 +563,22 @@ export default async function AdminOverview() {
             opening the app and browsing isn't tracked yet.
           </li>
           <li>
+            <b>Dates</b>: the date picker controls churn, new paying members,
+            &ldquo;used the app&rdquo;, the monthly churn table, retention by
+            join month, the daily chart and engagement by type. Churn for a
+            period = members who canceled during it ÷ everyone who paid during
+            it (paying at the start + new). Cards marked &ldquo;now&rdquo; always
+            show today. Days are in UTC.
+          </li>
+          <li>
+            <b>Participation groups</b>: <i>Never participated</i> = no
+            activity ever. <i>Tried it</i> = active on 1–{ENGAGED_DAYS - 1}{" "}
+            different days in their first 30 days. <i>Engaged</i> = active on{" "}
+            {ENGAGED_DAYS}+ different days in their first 30 days.{" "}
+            <i>Participated</i> = tried it + engaged. The &ldquo;Show&rdquo;
+            toggle filters every number below it to that group.
+          </li>
+          <li>
             <b>Community MRR</b>: paying members, minus trials, × $
             {h.pricePerMemberUsd}/mo. This is an estimate. Discounts and plan
             differences aren't taken into account.
@@ -463,6 +616,125 @@ export default async function AdminOverview() {
 
       <FoundingMemberBonusButton />
     </div>
+  );
+}
+
+function SegmentChurnCard({
+  rows,
+  active,
+  rangeLabel,
+}: {
+  rows: SegmentChurn[];
+  active: MemberSegment;
+  rangeLabel: string;
+}) {
+  const highlight = (b: SegmentChurn["bucket"]) =>
+    (active === "never" && b === "never") ||
+    (active === "engaged" && b === "engaged") ||
+    (active === "participated" && b === "participated");
+  const never = rows.find((r) => r.bucket === "never");
+  const engaged = rows.find((r) => r.bucket === "engaged");
+  return (
+    <Card className="shadow-sm">
+      <CardContent className="p-6">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
+            <thead>
+              <tr className="text-left text-xs text-muted-foreground">
+                <th className="pb-2 font-medium">Group</th>
+                <th className="pb-2 text-right font-medium">Members</th>
+                <th className="pb-2 text-right font-medium">Paying now</th>
+                <th className="pb-2 text-right font-medium">Churned (all time)</th>
+                <th className="pb-2 pl-4 font-medium">Still here</th>
+                <th className="pb-2 text-right font-medium">Churn ({rangeLabel})</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr
+                  key={r.bucket}
+                  className={`border-t ${r.bucket === "participated" ? "border-t-2" : ""} ${
+                    highlight(r.bucket) ? "bg-primary/5" : ""
+                  }`}
+                >
+                  <td className="py-2.5 pr-2">
+                    <span className="font-semibold">{BUCKET_LABELS[r.bucket].label}</span>
+                    <span className="block text-[11px] text-muted-foreground">
+                      {BUCKET_LABELS[r.bucket].hint}
+                    </span>
+                  </td>
+                  <td className="py-2.5 text-right">{r.members.toLocaleString()}</td>
+                  <td className="py-2.5 text-right">{r.paying.toLocaleString()}</td>
+                  <td className="py-2.5 text-right text-rose-700">
+                    {r.churnedAllTime.toLocaleString()}
+                  </td>
+                  <td className="py-2.5 pl-4">
+                    <div className="flex items-center gap-2">
+                      <div className="h-2 w-24 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full rounded-full bg-primary"
+                          style={{ width: `${r.stillHerePct ?? 0}%` }}
+                        />
+                      </div>
+                      <span className="font-bold">
+                        {r.stillHerePct == null ? "—" : `${r.stillHerePct}%`}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="py-2.5 text-right font-bold">
+                    {r.churnRatePct == null ? "—" : `${r.churnRatePct}%`}
+                    <span className="block text-[11px] font-normal text-muted-foreground">
+                      {r.churnedInRange.toLocaleString()} of{" "}
+                      {(r.payingAtStart + r.newPayingInRange).toLocaleString()}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {never?.stillHerePct != null && engaged?.stillHerePct != null && (
+          <p className="mt-4 text-sm">
+            <b>{engaged.stillHerePct}%</b> of engaged members are still paying, vs{" "}
+            <b>{never.stillHerePct}%</b> of members who never used the app.
+          </p>
+        )}
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Still here = paying now ÷ (paying now + churned). Churn for the selected
+          dates = members who canceled during those dates ÷ everyone who paid
+          during them (paying at the start + new). Groups
+          are based on activity in each member&apos;s first 30 days after
+          onboarding, so long-time members don&apos;t look engaged just from tenure.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Pill({
+  href,
+  active,
+  title,
+  children,
+}: {
+  href: string;
+  active: boolean;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      title={title}
+      scroll={false}
+      className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+        active
+          ? "border-primary bg-primary text-primary-foreground"
+          : "bg-background text-foreground hover:border-primary/40"
+      }`}
+    >
+      {children}
+    </Link>
   );
 }
 

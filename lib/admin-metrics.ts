@@ -280,6 +280,83 @@ export async function getOverviewMetrics(): Promise<OverviewMetrics> {
   };
 }
 
+// ── Date range ───────────────────────────────────────────────────────────────
+//
+// The dashboard date picker. Either a preset ("last N days, including today")
+// or a custom from/to (both inclusive, YYYY-MM-DD, UTC). `to` is stored as an
+// exclusive bound: midnight UTC after the last included day.
+
+export const RANGE_PRESETS = [
+  { value: "7d", label: "7 days", days: 7 },
+  { value: "30d", label: "30 days", days: 30 },
+  { value: "90d", label: "90 days", days: 90 },
+  { value: "180d", label: "6 months", days: 180 },
+  { value: "365d", label: "12 months", days: 365 },
+] as const;
+
+const MAX_RANGE_DAYS = 730;
+
+export type DateRange = {
+  preset: string | null;   // preset value, or null for a custom range
+  from: Date;              // inclusive
+  to: Date;                // exclusive
+  fromInput: string;       // YYYY-MM-DD, for the date inputs
+  toInput: string;         // YYYY-MM-DD (inclusive last day)
+  days: number;
+  label: string;
+};
+
+function utcMidnight(d: Date) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+function parseDay(v: string | undefined): Date | null {
+  if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+  const d = new Date(`${v}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+export function parseDateRange(params: {
+  range?: string;
+  from?: string;
+  to?: string;
+}): DateRange {
+  const tomorrow = new Date(utcMidnight(new Date()).getTime() + DAY);
+  let from: Date;
+  let to: Date;
+  let preset: string | null = null;
+
+  const customFrom = parseDay(params.from);
+  const customTo = parseDay(params.to);
+  if (params.range === "custom" && (customFrom || customTo)) {
+    let a = customFrom ?? new Date((customTo ?? tomorrow).getTime() - 29 * DAY);
+    let b = customTo ?? new Date(tomorrow.getTime() - DAY);
+    if (a > b) [a, b] = [b, a];
+    to = new Date(Math.min(b.getTime() + DAY, tomorrow.getTime()));
+    from = new Date(Math.max(a.getTime(), to.getTime() - MAX_RANGE_DAYS * DAY));
+    if (from >= to) from = new Date(to.getTime() - DAY);
+  } else {
+    const p = RANGE_PRESETS.find((x) => x.value === params.range) ?? RANGE_PRESETS[1];
+    preset = p.value;
+    to = tomorrow;
+    from = new Date(to.getTime() - p.days * DAY);
+  }
+
+  const days = Math.round((to.getTime() - from.getTime()) / DAY);
+  const fromInput = isoDate(from);
+  const toInput = isoDate(new Date(to.getTime() - DAY));
+  const fmt = (d: Date) =>
+    d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+  const label = preset
+    ? `Last ${RANGE_PRESETS.find((x) => x.value === preset)!.label}`
+    : `${fmt(from)} – ${fmt(new Date(to.getTime() - DAY))}`;
+  return { preset, from, to, fromInput, toInput, days, label };
+}
+
+export function defaultDateRange(): DateRange {
+  return parseDateRange({});
+}
+
 // ── Community health ─────────────────────────────────────────────────────────
 //
 // Everything below is scoped to COMMUNITY MEMBERS only: people who created an
@@ -317,10 +394,14 @@ export type CommunityHealth = {
   pastDue: number;
   comp: number;               // not paying, but on free/beta access
   churnedAllTime: number;
-  churnedLast30: number;
-  churnRate30Pct: number | null;   // churnedLast30 / (paying + churnedLast30)
-  newPayingLast30: number;
-  netChangeLast30: number;
+  // ── Selected date range ──
+  payingAtStart: number;          // paying when the range began
+  churnedInRange: number;         // canceled during the range
+  churnRatePct: number | null;    // churnedInRange / (payingAtStart + newPayingInRange)
+  newPayingInRange: number;       // first subscription during the range
+  netChangeInRange: number;
+  activeInRange: number;          // members (any status) who used the app in the range
+  activePayingInRange: number;    // … of whom are paying now
   dau: number;                // paying members with activity today
   wau: number;                // … last 7 days
   mau: number;                // … last 30 days
@@ -337,19 +418,75 @@ export type CommunityHealth = {
 const pct = (n: number, d: number) =>
   d > 0 ? Math.round((n / d) * 1000) / 10 : null;
 
-// Per-member rollup reused by every community-health query.
-const MEMBER_STATUS_CTE = sql`
-  members AS (
-    SELECT u.id, u.onboarded_at, u.free_access_until
+// ── Participation segments ───────────────────────────────────────────────────
+//
+// Every community member falls into exactly one participation bucket, based on
+// how many different days they did something in the app (activity_log):
+//   never    — zero activity, ever
+//   light    — used it, but on fewer than ENGAGED_DAYS days in their first 30
+//              days after onboarding
+//   engaged  — active on ENGAGED_DAYS+ different days in their first 30 days
+// The first-30-days window keeps the comparison fair: a member who has been
+// around for a year would otherwise look "engaged" just by tenure, and someone
+// who canceled in week two never had the chance to rack up days.
+//
+// The dashboard toggle filters every community-health number by segment:
+//   all          — every member
+//   participated — light + engaged (did at least one thing in the app)
+//   engaged      — engaged only
+//   never        — never used the app
+
+export const ENGAGED_DAYS = 4;
+
+export const MEMBER_SEGMENTS = ["all", "participated", "engaged", "never"] as const;
+export type MemberSegment = (typeof MEMBER_SEGMENTS)[number];
+
+export function parseSegment(v: string | undefined): MemberSegment {
+  return (MEMBER_SEGMENTS as readonly string[]).includes(v ?? "")
+    ? (v as MemberSegment)
+    : "all";
+}
+
+const SEGMENT_FILTER: Record<MemberSegment, string> = {
+  all: "true",
+  participated: "bucket IN ('light', 'engaged')",
+  engaged: "bucket = 'engaged'",
+  never: "bucket = 'never'",
+};
+
+// Per-member rollup reused by every community-health query, filtered to one
+// participation segment.
+function memberStatusCte(segment: MemberSegment) {
+  return sql`
+  member_activity AS (
+    SELECT
+      u.id,
+      u.onboarded_at,
+      u.free_access_until,
+      CASE
+        WHEN count(a.id) = 0 THEN 'never'
+        WHEN count(DISTINCT a.created_at::date) FILTER (
+          WHERE a.created_at < u.onboarded_at + interval '30 days'
+        ) >= ${sql.raw(String(ENGAGED_DAYS))} THEN 'engaged'
+        ELSE 'light'
+      END AS bucket
     FROM users u
+    LEFT JOIN activity_log a ON a.user_id = u.id
     WHERE u.onboarded_at IS NOT NULL
       AND u.role = 'member'
+    GROUP BY u.id, u.onboarded_at, u.free_access_until
+  ),
+  members AS (
+    SELECT id, onboarded_at, free_access_until, bucket
+    FROM member_activity
+    WHERE ${sql.raw(SEGMENT_FILTER[segment])}
   ),
   member_status AS (
     SELECT
       m.id,
       m.onboarded_at,
       m.free_access_until,
+      m.bucket,
       coalesce(bool_or(s.status IN ('active', 'trialing', 'past_due')), false) AS paying,
       coalesce(bool_or(s.status = 'trialing'), false) AS trialing,
       coalesce(bool_or(s.status = 'past_due'), false) AS past_due,
@@ -357,11 +494,18 @@ const MEMBER_STATUS_CTE = sql`
       max(s.updated_at) FILTER (WHERE s.status = 'canceled') AS canceled_at
     FROM members m
     LEFT JOIN subscriptions s ON s.user_id = m.id
-    GROUP BY m.id, m.onboarded_at, m.free_access_until
+    GROUP BY m.id, m.onboarded_at, m.free_access_until, m.bucket
   )
 `;
+}
 
-export async function getCommunityHealth(months = 6): Promise<CommunityHealth> {
+export async function getCommunityHealth(
+  range: DateRange = defaultDateRange(),
+  segment: MemberSegment = "all",
+): Promise<CommunityHealth> {
+  const MEMBER_STATUS_CTE = memberStatusCte(segment);
+  const fromIso = range.from.toISOString();
+  const toIso = range.to.toISOString();
   const now = new Date();
   const today = new Date(now);
   today.setHours(0, 0, 0, 0);
@@ -382,11 +526,30 @@ export async function getCommunityHealth(months = 6): Promise<CommunityHealth> {
           count(*) FILTER (WHERE NOT paying AND free_access_until > now())::int AS comp,
           count(*) FILTER (WHERE NOT paying AND canceled_at IS NOT NULL)::int AS "churnedAllTime",
           count(*) FILTER (
-            WHERE NOT paying AND canceled_at >= ${d30Iso}::timestamptz
-          )::int AS "churnedLast30",
+            WHERE first_sub_at < ${fromIso}::timestamptz
+              AND (paying OR canceled_at IS NULL OR canceled_at >= ${fromIso}::timestamptz)
+          )::int AS "payingAtStart",
           count(*) FILTER (
-            WHERE first_sub_at >= ${d30Iso}::timestamptz
-          )::int AS "newPayingLast30"
+            WHERE NOT paying
+              AND canceled_at >= ${fromIso}::timestamptz
+              AND canceled_at < ${toIso}::timestamptz
+          )::int AS "churnedInRange",
+          count(*) FILTER (
+            WHERE first_sub_at >= ${fromIso}::timestamptz
+              AND first_sub_at < ${toIso}::timestamptz
+          )::int AS "newPayingInRange",
+          count(*) FILTER (WHERE EXISTS (
+            SELECT 1 FROM activity_log a
+            WHERE a.user_id = member_status.id
+              AND a.created_at >= ${fromIso}::timestamptz
+              AND a.created_at < ${toIso}::timestamptz
+          ))::int AS "activeInRange",
+          count(*) FILTER (WHERE paying AND EXISTS (
+            SELECT 1 FROM activity_log a
+            WHERE a.user_id = member_status.id
+              AND a.created_at >= ${fromIso}::timestamptz
+              AND a.created_at < ${toIso}::timestamptz
+          ))::int AS "activePayingInRange"
         FROM member_status
       `),
       db.execute(sql`
@@ -425,8 +588,8 @@ export async function getCommunityHealth(months = 6): Promise<CommunityHealth> {
         WITH ${MEMBER_STATUS_CTE},
         months AS (
           SELECT generate_series(
-            date_trunc('month', now()) - make_interval(months => ${months - 1}::int),
-            date_trunc('month', now()),
+            date_trunc('month', ${fromIso}::timestamptz),
+            date_trunc('month', ${toIso}::timestamptz - interval '1 second'),
             interval '1 month'
           ) AS ms
         )
@@ -464,7 +627,8 @@ export async function getCommunityHealth(months = 6): Promise<CommunityHealth> {
           count(r.user_id)::int AS "activeLast30"
         FROM member_status ms_
         LEFT JOIN recent r ON r.user_id = ms_.id
-        WHERE ms_.onboarded_at >= date_trunc('month', now()) - make_interval(months => ${months - 1}::int)
+        WHERE ms_.onboarded_at >= ${fromIso}::timestamptz
+          AND ms_.onboarded_at < ${toIso}::timestamptz
         GROUP BY 1
         ORDER BY 1 DESC
       `),
@@ -477,8 +641,9 @@ export async function getCommunityHealth(months = 6): Promise<CommunityHealth> {
 
   const paying = n(s, "paying");
   const trialing = n(s, "trialing");
-  const churnedLast30 = n(s, "churnedLast30");
-  const newPayingLast30 = n(s, "newPayingLast30");
+  const payingAtStart = n(s, "payingAtStart");
+  const churnedInRange = n(s, "churnedInRange");
+  const newPayingInRange = n(s, "newPayingInRange");
 
   return {
     members: n(s, "members"),
@@ -487,10 +652,13 @@ export async function getCommunityHealth(months = 6): Promise<CommunityHealth> {
     pastDue: n(s, "pastDue"),
     comp: n(s, "comp"),
     churnedAllTime: n(s, "churnedAllTime"),
-    churnedLast30,
-    churnRate30Pct: pct(churnedLast30, paying + churnedLast30),
-    newPayingLast30,
-    netChangeLast30: newPayingLast30 - churnedLast30,
+    payingAtStart,
+    churnedInRange,
+    churnRatePct: pct(churnedInRange, payingAtStart + newPayingInRange),
+    newPayingInRange,
+    netChangeInRange: newPayingInRange - churnedInRange,
+    activeInRange: n(s, "activeInRange"),
+    activePayingInRange: n(s, "activePayingInRange"),
     dau: n(a, "dau"),
     wau: n(a, "wau"),
     mau: n(a, "mau"),
@@ -505,7 +673,7 @@ export async function getCommunityHealth(months = 6): Promise<CommunityHealth> {
       startPaying: n(r, "startPaying"),
       joined: n(r, "joined"),
       churned: n(r, "churned"),
-      churnPct: pct(n(r, "churned"), n(r, "startPaying")),
+      churnPct: pct(n(r, "churned"), n(r, "startPaying") + n(r, "joined")),
     })),
     cohorts: (cohortRows as unknown as Row[]).map((r) => ({
       month: String(r.month),
@@ -518,15 +686,115 @@ export async function getCommunityHealth(months = 6): Promise<CommunityHealth> {
   };
 }
 
-/** Paying community members active on each of the last `days` days. */
-export async function getDailyActiveMembers(days = 30): Promise<ActivityByDay[]> {
-  const since = new Date(Date.now() - days * DAY).toISOString();
+export type SegmentChurn = {
+  bucket: "never" | "light" | "engaged" | "participated";
+  members: number;
+  paying: number;
+  churnedAllTime: number;
+  payingAtStart: number;         // paying when the range began
+  newPayingInRange: number;      // started paying during the range
+  churnedInRange: number;
+  stillHerePct: number | null;   // paying / (paying + churnedAllTime)
+  churnRatePct: number | null;   // churnedInRange / (payingAtStart + newPayingInRange)
+};
+
+/**
+ * Churn side by side for each participation bucket, so you can see whether
+ * members who actually use the app cancel less than those who don't.
+ * Returned as never, light, engaged, plus participated (light + engaged).
+ */
+export async function getChurnBySegment(
+  range: DateRange = defaultDateRange(),
+): Promise<SegmentChurn[]> {
+  const fromIso = range.from.toISOString();
+  const toIso = range.to.toISOString();
   const rows = await db.execute(sql`
-    WITH ${MEMBER_STATUS_CTE}
-    SELECT a.created_at::date::text AS day, count(DISTINCT a.user_id)::int AS count
+    WITH ${memberStatusCte("all")}
+    SELECT
+      bucket,
+      count(*)::int AS members,
+      count(*) FILTER (WHERE paying)::int AS paying,
+      count(*) FILTER (WHERE NOT paying AND canceled_at IS NOT NULL)::int AS "churnedAllTime",
+      count(*) FILTER (
+        WHERE first_sub_at < ${fromIso}::timestamptz
+          AND (paying OR canceled_at IS NULL OR canceled_at >= ${fromIso}::timestamptz)
+      )::int AS "payingAtStart",
+      count(*) FILTER (
+        WHERE first_sub_at >= ${fromIso}::timestamptz
+          AND first_sub_at < ${toIso}::timestamptz
+      )::int AS "newPayingInRange",
+      count(*) FILTER (
+        WHERE NOT paying
+          AND canceled_at >= ${fromIso}::timestamptz
+          AND canceled_at < ${toIso}::timestamptz
+      )::int AS "churnedInRange"
+    FROM member_status
+    GROUP BY bucket
+  `);
+
+  type Counts = Pick<
+    SegmentChurn,
+    "members" | "paying" | "churnedAllTime" | "payingAtStart" | "newPayingInRange" | "churnedInRange"
+  >;
+  const zero: Counts = {
+    members: 0,
+    paying: 0,
+    churnedAllTime: 0,
+    payingAtStart: 0,
+    newPayingInRange: 0,
+    churnedInRange: 0,
+  };
+  const byBucket = new Map<string, Counts>();
+  for (const r of rows as unknown as Record<string, unknown>[]) {
+    byBucket.set(String(r.bucket), {
+      members: Number(r.members ?? 0),
+      paying: Number(r.paying ?? 0),
+      churnedAllTime: Number(r.churnedAllTime ?? 0),
+      payingAtStart: Number(r.payingAtStart ?? 0),
+      newPayingInRange: Number(r.newPayingInRange ?? 0),
+      churnedInRange: Number(r.churnedInRange ?? 0),
+    });
+  }
+  const light = byBucket.get("light") ?? zero;
+  const engaged = byBucket.get("engaged") ?? zero;
+  const participated: Counts = {
+    members: light.members + engaged.members,
+    paying: light.paying + engaged.paying,
+    churnedAllTime: light.churnedAllTime + engaged.churnedAllTime,
+    payingAtStart: light.payingAtStart + engaged.payingAtStart,
+    newPayingInRange: light.newPayingInRange + engaged.newPayingInRange,
+    churnedInRange: light.churnedInRange + engaged.churnedInRange,
+  };
+
+  const finish = (bucket: SegmentChurn["bucket"], c: Counts): SegmentChurn => ({
+    bucket,
+    ...c,
+    stillHerePct: pct(c.paying, c.paying + c.churnedAllTime),
+    churnRatePct: pct(c.churnedInRange, c.payingAtStart + c.newPayingInRange),
+  });
+  return [
+    finish("never", byBucket.get("never") ?? zero),
+    finish("light", light),
+    finish("engaged", engaged),
+    finish("participated", participated),
+  ];
+}
+
+/** Community members (in the segment) active on each day of the range. */
+export async function getDailyActiveMembers(
+  range: DateRange = defaultDateRange(),
+  segment: MemberSegment = "all",
+): Promise<ActivityByDay[]> {
+  const since = range.from.toISOString();
+  const until = range.to.toISOString();
+  const rows = await db.execute(sql`
+    WITH ${memberStatusCte(segment)}
+    SELECT (a.created_at AT TIME ZONE 'UTC')::date::text AS day,
+           count(DISTINCT a.user_id)::int AS count
     FROM activity_log a
-    JOIN member_status ms_ ON ms_.id = a.user_id AND ms_.paying
+    JOIN member_status ms_ ON ms_.id = a.user_id
     WHERE a.created_at >= ${since}::timestamptz
+      AND a.created_at < ${until}::timestamptz
     GROUP BY 1
   `);
   const byDay = new Map<string, number>();
@@ -534,8 +802,8 @@ export async function getDailyActiveMembers(days = 30): Promise<ActivityByDay[]>
     byDay.set(String(r.day), Number(r.count));
   }
   const out: ActivityByDay[] = [];
-  for (let i = days - 1; i >= 0; i--) {
-    const key = isoDate(new Date(Date.now() - i * DAY));
+  for (let t = range.from.getTime(); t < range.to.getTime(); t += DAY) {
+    const key = isoDate(new Date(t));
     out.push({ date: key, count: byDay.get(key) ?? 0 });
   }
   return out;
@@ -568,15 +836,23 @@ export async function getDailyActivityCounts(days = 30): Promise<ActivityByDay[]
 
 export type ActivityBreakdown = { type: string; count: number };
 
-export async function getActivityBreakdown(days = 30): Promise<ActivityBreakdown[]> {
-  const since = new Date(Date.now() - days * DAY);
+export async function getActivityBreakdown(
+  daysOrRange: number | DateRange = 30,
+): Promise<ActivityBreakdown[]> {
+  const where =
+    typeof daysOrRange === "number"
+      ? gte(activityLog.createdAt, new Date(Date.now() - daysOrRange * DAY))
+      : and(
+          gte(activityLog.createdAt, daysOrRange.from),
+          lt(activityLog.createdAt, daysOrRange.to),
+        );
   const rows = await db
     .select({
       type: activityLog.type,
       count: sql<number>`count(*)::int`,
     })
     .from(activityLog)
-    .where(gte(activityLog.createdAt, since))
+    .where(where)
     .groupBy(activityLog.type);
   return rows
     .map((r) => ({ type: String(r.type), count: Number(r.count) }))
