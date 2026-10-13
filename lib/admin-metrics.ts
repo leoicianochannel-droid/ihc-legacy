@@ -227,8 +227,10 @@ export async function getOverviewMetrics(): Promise<OverviewMetrics> {
     .from(activityLog)
     .where(gte(activityLog.createdAt, d30));
 
-  // 7-day retention: of users who signed up between 8 and 14 days ago, what
-  // fraction have logged any activity since their signup + 1 day?
+  // 7-day retention: of members who finished onboarding between 8 and 14 days
+  // ago, what fraction have logged any activity since onboarding + 1 day?
+  // (Uses onboarded_at, not created_at — created_at also includes the Skio
+  // "shadow users" the webhook pre-creates for every buyer.)
   // We use raw SQL via sql.raw() with ISO-string dates to avoid postgres-js's
   // refusal to bind JS Date objects inside templated fragments.
   const d7Iso = d7.toISOString();
@@ -243,9 +245,9 @@ export async function getOverviewMetrics(): Promise<OverviewMetrics> {
     FROM users u
     LEFT JOIN activity_log a
       ON a.user_id = u.id
-     AND a.created_at > u.created_at + interval '1 day'
-    WHERE u.created_at >= ${d14Iso}::timestamptz
-      AND u.created_at < ${d7Iso}::timestamptz
+     AND a.created_at > u.onboarded_at + interval '1 day'
+    WHERE u.onboarded_at >= ${d14Iso}::timestamptz
+      AND u.onboarded_at < ${d7Iso}::timestamptz
   `);
   const cohort = (cohortRows as unknown as { cohort_size: number; returned: number }[])[0] ?? {
     cohort_size: 0,
@@ -276,6 +278,267 @@ export async function getOverviewMetrics(): Promise<OverviewMetrics> {
     mau: Number(mau),
     retention7Pct,
   };
+}
+
+// ── Community health ─────────────────────────────────────────────────────────
+//
+// Everything below is scoped to COMMUNITY MEMBERS only: people who created an
+// account on the app and finished onboarding (users.onboarded_at IS NOT NULL),
+// excluding admins/coaches. The subscriptions table also holds every Skio
+// subscriber the webhook has ever seen (a "shadow user" is created for each
+// buyer), most of whom never joined the community — those are ignored here.
+//
+// A member is "paying" if any of their subscription rows is active, trialing
+// or past_due. A member has "churned" if they have a canceled subscription and
+// nothing currently paying. We don't store a dedicated cancel timestamp, so the
+// canceled row's updated_at is used as the cancel date.
+
+export type ChurnMonth = {
+  month: string;          // YYYY-MM
+  startPaying: number;    // paying at the start of the month
+  joined: number;         // started paying during the month
+  churned: number;        // canceled during the month
+  churnPct: number | null;
+};
+
+export type JoinCohort = {
+  month: string;          // YYYY-MM, by onboarding date
+  joined: number;
+  stillPaying: number;
+  stillPayingPct: number | null;
+  activeLast30: number;
+  activeLast30Pct: number | null;
+};
+
+export type CommunityHealth = {
+  members: number;            // onboarded community members (all time)
+  paying: number;             // active + trialing + past_due
+  trialing: number;
+  pastDue: number;
+  comp: number;               // not paying, but on free/beta access
+  churnedAllTime: number;
+  churnedLast30: number;
+  churnRate30Pct: number | null;   // churnedLast30 / (paying + churnedLast30)
+  newPayingLast30: number;
+  netChangeLast30: number;
+  dau: number;                // paying members with activity today
+  wau: number;                // … last 7 days
+  mau: number;                // … last 30 days
+  dailyRegulars: number;      // paying members active on 5+ of the last 7 days
+  goneQuiet14: number;        // paying, has used the app, but nothing in 14+ days
+  neverActive: number;        // paying, zero activity ever
+  estMrrUsd: number;          // (paying − trialing) × PRICE_USD
+  pricePerMemberUsd: number;
+  nonCommunitySubs: number;   // active subscription rows NOT tied to a community member
+  churnByMonth: ChurnMonth[];
+  cohorts: JoinCohort[];
+};
+
+const pct = (n: number, d: number) =>
+  d > 0 ? Math.round((n / d) * 1000) / 10 : null;
+
+// Per-member rollup reused by every community-health query.
+const MEMBER_STATUS_CTE = sql`
+  members AS (
+    SELECT u.id, u.onboarded_at, u.free_access_until
+    FROM users u
+    WHERE u.onboarded_at IS NOT NULL
+      AND u.role = 'member'
+  ),
+  member_status AS (
+    SELECT
+      m.id,
+      m.onboarded_at,
+      m.free_access_until,
+      coalesce(bool_or(s.status IN ('active', 'trialing', 'past_due')), false) AS paying,
+      coalesce(bool_or(s.status = 'trialing'), false) AS trialing,
+      coalesce(bool_or(s.status = 'past_due'), false) AS past_due,
+      min(s.created_at) AS first_sub_at,
+      max(s.updated_at) FILTER (WHERE s.status = 'canceled') AS canceled_at
+    FROM members m
+    LEFT JOIN subscriptions s ON s.user_id = m.id
+    GROUP BY m.id, m.onboarded_at, m.free_access_until
+  )
+`;
+
+export async function getCommunityHealth(months = 6): Promise<CommunityHealth> {
+  const now = new Date();
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  const todayIso = today.toISOString();
+  const d7Iso = new Date(now.getTime() - 7 * DAY).toISOString();
+  const d14Iso = new Date(now.getTime() - 14 * DAY).toISOString();
+  const d30Iso = new Date(now.getTime() - 30 * DAY).toISOString();
+
+  const [summaryRows, activityRows, nonCommunityRows, churnRows, cohortRows] =
+    await Promise.all([
+      db.execute(sql`
+        WITH ${MEMBER_STATUS_CTE}
+        SELECT
+          count(*)::int AS members,
+          count(*) FILTER (WHERE paying)::int AS paying,
+          count(*) FILTER (WHERE trialing)::int AS trialing,
+          count(*) FILTER (WHERE past_due)::int AS "pastDue",
+          count(*) FILTER (WHERE NOT paying AND free_access_until > now())::int AS comp,
+          count(*) FILTER (WHERE NOT paying AND canceled_at IS NOT NULL)::int AS "churnedAllTime",
+          count(*) FILTER (
+            WHERE NOT paying AND canceled_at >= ${d30Iso}::timestamptz
+          )::int AS "churnedLast30",
+          count(*) FILTER (
+            WHERE first_sub_at >= ${d30Iso}::timestamptz
+          )::int AS "newPayingLast30"
+        FROM member_status
+      `),
+      db.execute(sql`
+        WITH ${MEMBER_STATUS_CTE},
+        paying AS (SELECT id FROM member_status WHERE paying),
+        act AS (
+          SELECT
+            p.id,
+            max(a.created_at) AS last_at,
+            count(DISTINCT a.created_at::date) FILTER (
+              WHERE a.created_at >= ${d7Iso}::timestamptz
+            ) AS days_last7
+          FROM paying p
+          LEFT JOIN activity_log a ON a.user_id = p.id
+          GROUP BY p.id
+        )
+        SELECT
+          count(*) FILTER (WHERE last_at >= ${todayIso}::timestamptz)::int AS dau,
+          count(*) FILTER (WHERE last_at >= ${d7Iso}::timestamptz)::int AS wau,
+          count(*) FILTER (WHERE last_at >= ${d30Iso}::timestamptz)::int AS mau,
+          count(*) FILTER (WHERE days_last7 >= 5)::int AS "dailyRegulars",
+          count(*) FILTER (
+            WHERE last_at IS NOT NULL AND last_at < ${d14Iso}::timestamptz
+          )::int AS "goneQuiet14",
+          count(*) FILTER (WHERE last_at IS NULL)::int AS "neverActive"
+        FROM act
+      `),
+      db.execute(sql`
+        SELECT count(*)::int AS n
+        FROM subscriptions s
+        JOIN users u ON u.id = s.user_id
+        WHERE s.status IN ('active', 'trialing', 'past_due')
+          AND (u.onboarded_at IS NULL OR u.role <> 'member')
+      `),
+      db.execute(sql`
+        WITH ${MEMBER_STATUS_CTE},
+        months AS (
+          SELECT generate_series(
+            date_trunc('month', now()) - make_interval(months => ${months - 1}::int),
+            date_trunc('month', now()),
+            interval '1 month'
+          ) AS ms
+        )
+        SELECT
+          to_char(mo.ms, 'YYYY-MM') AS month,
+          count(*) FILTER (
+            WHERE ms_.first_sub_at < mo.ms
+              AND (ms_.paying OR ms_.canceled_at IS NULL OR ms_.canceled_at >= mo.ms)
+          )::int AS "startPaying",
+          count(*) FILTER (
+            WHERE ms_.first_sub_at >= mo.ms
+              AND ms_.first_sub_at < mo.ms + interval '1 month'
+          )::int AS joined,
+          count(*) FILTER (
+            WHERE NOT ms_.paying
+              AND ms_.canceled_at >= mo.ms
+              AND ms_.canceled_at < mo.ms + interval '1 month'
+          )::int AS churned
+        FROM months mo
+        CROSS JOIN member_status ms_
+        WHERE ms_.first_sub_at IS NOT NULL
+        GROUP BY mo.ms
+        ORDER BY mo.ms DESC
+      `),
+      db.execute(sql`
+        WITH ${MEMBER_STATUS_CTE},
+        recent AS (
+          SELECT DISTINCT user_id FROM activity_log
+          WHERE created_at >= ${d30Iso}::timestamptz
+        )
+        SELECT
+          to_char(date_trunc('month', ms_.onboarded_at), 'YYYY-MM') AS month,
+          count(*)::int AS joined,
+          count(*) FILTER (WHERE ms_.paying)::int AS "stillPaying",
+          count(r.user_id)::int AS "activeLast30"
+        FROM member_status ms_
+        LEFT JOIN recent r ON r.user_id = ms_.id
+        WHERE ms_.onboarded_at >= date_trunc('month', now()) - make_interval(months => ${months - 1}::int)
+        GROUP BY 1
+        ORDER BY 1 DESC
+      `),
+    ]);
+
+  type Row = Record<string, unknown>;
+  const s = (summaryRows as unknown as Row[])[0] ?? {};
+  const a = (activityRows as unknown as Row[])[0] ?? {};
+  const n = (r: Row, k: string) => Number(r[k] ?? 0);
+
+  const paying = n(s, "paying");
+  const trialing = n(s, "trialing");
+  const churnedLast30 = n(s, "churnedLast30");
+  const newPayingLast30 = n(s, "newPayingLast30");
+
+  return {
+    members: n(s, "members"),
+    paying,
+    trialing,
+    pastDue: n(s, "pastDue"),
+    comp: n(s, "comp"),
+    churnedAllTime: n(s, "churnedAllTime"),
+    churnedLast30,
+    churnRate30Pct: pct(churnedLast30, paying + churnedLast30),
+    newPayingLast30,
+    netChangeLast30: newPayingLast30 - churnedLast30,
+    dau: n(a, "dau"),
+    wau: n(a, "wau"),
+    mau: n(a, "mau"),
+    dailyRegulars: n(a, "dailyRegulars"),
+    goneQuiet14: n(a, "goneQuiet14"),
+    neverActive: n(a, "neverActive"),
+    estMrrUsd: Math.round((paying - trialing) * PRICE_USD),
+    pricePerMemberUsd: PRICE_USD,
+    nonCommunitySubs: n((nonCommunityRows as unknown as Row[])[0] ?? {}, "n"),
+    churnByMonth: (churnRows as unknown as Row[]).map((r) => ({
+      month: String(r.month),
+      startPaying: n(r, "startPaying"),
+      joined: n(r, "joined"),
+      churned: n(r, "churned"),
+      churnPct: pct(n(r, "churned"), n(r, "startPaying")),
+    })),
+    cohorts: (cohortRows as unknown as Row[]).map((r) => ({
+      month: String(r.month),
+      joined: n(r, "joined"),
+      stillPaying: n(r, "stillPaying"),
+      stillPayingPct: pct(n(r, "stillPaying"), n(r, "joined")),
+      activeLast30: n(r, "activeLast30"),
+      activeLast30Pct: pct(n(r, "activeLast30"), n(r, "joined")),
+    })),
+  };
+}
+
+/** Paying community members active on each of the last `days` days. */
+export async function getDailyActiveMembers(days = 30): Promise<ActivityByDay[]> {
+  const since = new Date(Date.now() - days * DAY).toISOString();
+  const rows = await db.execute(sql`
+    WITH ${MEMBER_STATUS_CTE}
+    SELECT a.created_at::date::text AS day, count(DISTINCT a.user_id)::int AS count
+    FROM activity_log a
+    JOIN member_status ms_ ON ms_.id = a.user_id AND ms_.paying
+    WHERE a.created_at >= ${since}::timestamptz
+    GROUP BY 1
+  `);
+  const byDay = new Map<string, number>();
+  for (const r of rows as unknown as { day: string; count: number }[]) {
+    byDay.set(String(r.day), Number(r.count));
+  }
+  const out: ActivityByDay[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const key = isoDate(new Date(Date.now() - i * DAY));
+    out.push({ date: key, count: byDay.get(key) ?? 0 });
+  }
+  return out;
 }
 
 export type ActivityByDay = { date: string; count: number };

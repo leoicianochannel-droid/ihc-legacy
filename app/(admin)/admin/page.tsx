@@ -7,7 +7,6 @@ import {
   Activity,
   Wallet,
   Heart,
-  MessageCircle,
   Trophy,
   ArrowRight,
   AlertTriangle,
@@ -17,9 +16,10 @@ import { db, users as usersTable } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import {
   getOverviewMetrics,
-  getDailyActivityCounts,
   getCommunityPulse,
   getActivityBreakdown,
+  getCommunityHealth,
+  getDailyActiveMembers,
 } from "@/lib/admin-metrics";
 import { BarSeries } from "@/components/admin/charts";
 import { FoundingMemberBonusButton } from "./founding-member-bonus-button";
@@ -36,15 +36,25 @@ const ACTIVITY_LABELS: Record<string, string> = {
   buddy_checkin: "Buddy check-ins",
 };
 
-// Mid-tier MRR target for the progress bar in the top-right card. Adjust
-// freely — this is purely a visual milestone.
-const MRR_TARGET_USD = 10000;
+function share(n: number, d: number) {
+  return d > 0 ? `${Math.round((n / d) * 1000) / 10}%` : "—";
+}
+
+function monthLabel(ym: string) {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleString("en-US", {
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
 
 export default async function AdminOverview() {
-  const [{ userId }, m, daily, pulse, breakdown] = await Promise.all([
+  const [{ userId }, m, h, daily, pulse, breakdown] = await Promise.all([
     auth(),
     getOverviewMetrics(),
-    getDailyActivityCounts(30),
+    getCommunityHealth(6),
+    getDailyActiveMembers(30),
     getCommunityPulse(),
     getActivityBreakdown(30),
   ]);
@@ -59,149 +69,238 @@ export default async function AdminOverview() {
     firstName = me?.firstName ?? null;
   }
 
-  // ── Active vs inactive split (last 7d wau / active subs) for the right-side bar.
-  const activeShare = m.activeSubs > 0 ? Math.min(1, m.wau / m.activeSubs) : 0;
-  const inactiveShare = 1 - activeShare;
+  // Paying vs churned split (all-time, community members only).
+  const everPaid = h.paying + h.churnedAllTime;
+  const stayingShare = everPaid > 0 ? h.paying / everPaid : 0;
 
   return (
     <div className="px-6 py-8 lg:px-10">
       {/* ── Hero row ──────────────────────────────────────────── */}
-      <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-        {/* Left: greeting */}
+      <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">
-            Operational Overview
+            Community Health
           </p>
           <h1 className="mt-2 font-display text-4xl font-bold leading-tight md:text-5xl">
             Welcome back{firstName ? `, ${firstName}` : ""}
           </h1>
-          <div className="mt-4 flex items-center gap-3">
+          <div className="mt-4 flex flex-wrap items-center gap-3">
             <span className="inline-flex items-center gap-2 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-700">
               <span className="size-2 rounded-full bg-emerald-500" />
               System Online
             </span>
             <span className="text-xs text-muted-foreground">
-              {m.dau} active today · {m.newLast7} new this week
+              Every number on this page counts only members who joined the
+              community app. {h.nonCommunitySubs.toLocaleString()} other Skio
+              subscriptions are excluded.
             </span>
           </div>
         </div>
 
-        {/* Right: top summary card */}
         <Card className="shadow-sm">
           <CardContent className="p-5">
             <div className="flex items-baseline justify-between gap-2">
               <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
-                Estimated MRR
+                Community MRR (est.)
               </span>
               <span className="font-display text-2xl font-bold">
-                ${m.estMrrUsd.toLocaleString()}
+                ${h.estMrrUsd.toLocaleString()}
               </span>
             </div>
-            <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-primary transition-all"
-                style={{
-                  width: `${Math.min(100, (m.estMrrUsd / MRR_TARGET_USD) * 100)}%`,
-                }}
-              />
-            </div>
-            <div className="mt-2 flex items-baseline justify-between text-[10px] text-muted-foreground">
-              <span>
-                {m.activeSubs} active · {m.trialingSubs} trialing
-              </span>
-              <span>Goal ${MRR_TARGET_USD.toLocaleString()}</span>
-            </div>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              {(h.paying - h.trialing).toLocaleString()} paying members × $
+              {h.pricePerMemberUsd}/mo. Trials and comped members not included.
+            </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* ── KPI grid ──────────────────────────────────────────── */}
-      <div className="mt-8 grid gap-4 sm:grid-cols-3">
+      {/* ── Are people staying? ──────────────────────────────────── */}
+      <SectionTitle>Are members staying?</SectionTitle>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi
           icon={<Wallet className="size-5" />}
-          tint="gold"
-          label="Active Subscriptions"
-          value={m.activeSubs.toLocaleString()}
-          delta={`${m.trialingSubs} trialing · ${m.pastDueSubs} past due`}
-        />
-        <Kpi
-          icon={<Users className="size-5" />}
           tint="green"
-          label="Active Community Members"
-          value={m.onboardedMembers.toLocaleString()}
-          delta={`${m.newLast7} new this week`}
-          deltaTone="positive"
-        />
-        <Kpi
-          icon={<Activity className="size-5" />}
-          tint="green"
-          label="Active This Week"
-          value={`${m.wau}${m.totalMembers > 0 ? ` / ${m.totalMembers}` : ""}`}
-          delta={
-            m.totalMembers > 0
-              ? `${Math.round((m.wau / m.totalMembers) * 100)}% of community`
-              : undefined
-          }
-          deltaTone="positive"
+          label="Paying community members"
+          value={h.paying.toLocaleString()}
+          delta={`${h.trialing} trialing · ${h.pastDue} past due · ${h.comp} comped`}
         />
         <Kpi
           icon={<TrendingDown className="size-5" />}
           tint={
-            m.churnRate30Pct == null
+            h.churnRate30Pct == null
               ? "neutral"
-              : m.churnRate30Pct > 8
+              : h.churnRate30Pct > 8
                 ? "rose"
-                : m.churnRate30Pct > 4
+                : h.churnRate30Pct > 4
                   ? "amber"
                   : "green"
           }
-          label="Churn (30 days)"
-          value={m.churnRate30Pct == null ? "—" : `${m.churnRate30Pct}%`}
-          delta={`${m.canceledLast30} canceled in last 30 days`}
+          label="Churn (last 30 days)"
+          value={h.churnRate30Pct == null ? "—" : `${h.churnRate30Pct}%`}
+          delta={`${h.churnedLast30.toLocaleString()} members canceled`}
         />
-      </div>
-
-      {/* ── Activity row ──────────────────────────────────────────── */}
-      <div className="mt-6 grid gap-4 lg:grid-cols-3">
         <Kpi
-          icon={<Activity className="size-5" />}
+          icon={<Users className="size-5" />}
           tint="primary"
-          label="Active Today"
-          value={m.dau}
-          delta={
-            m.activeSubs > 0
-              ? `${Math.round((m.dau / m.activeSubs) * 1000) / 10}% of subscribers`
-              : undefined
-          }
-        />
-        <Kpi
-          icon={<MessageCircle className="size-5" />}
-          tint="green"
-          label="Posts This Week"
-          value={pulse.postsLast7}
-          delta={`${pulse.commentsLast7} comments · ${pulse.likesLast7} likes`}
+          label="New paying (last 30 days)"
+          value={h.newPayingLast30.toLocaleString()}
+          delta={`Net ${h.netChangeLast30 >= 0 ? "+" : ""}${h.netChangeLast30.toLocaleString()} after churn`}
+          deltaTone={h.netChangeLast30 >= 0 ? "positive" : "negative"}
         />
         <Kpi
           icon={<Heart className="size-5" />}
           tint="gold"
-          label="7-Day Retention"
-          value={m.retention7Pct == null ? "—" : `${m.retention7Pct}%`}
-          delta="Of last week's signups, this many came back"
-          deltaTone={
-            m.retention7Pct == null
-              ? "neutral"
-              : m.retention7Pct >= 50
-                ? "positive"
-                : m.retention7Pct >= 30
-                  ? "amber"
-                  : "negative"
-          }
+          label="Still here (all time)"
+          value={share(h.paying, everPaid)}
+          delta={`${h.paying.toLocaleString()} staying · ${h.churnedAllTime.toLocaleString()} churned`}
         />
       </div>
 
-      {/* ── Breakdown row ──────────────────────────────────────────── */}
-      <div className="mt-8 grid gap-4 lg:grid-cols-2">
-        {/* Activity by type — mirrors the "Cost by API" card in the reference */}
+      {/* ── Are they showing up? ─────────────────────────────────── */}
+      <SectionTitle>Are paying members showing up?</SectionTitle>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Kpi
+          icon={<Activity className="size-5" />}
+          tint="primary"
+          label="Active today"
+          value={h.dau.toLocaleString()}
+          delta={`${share(h.dau, h.paying)} of paying members`}
+        />
+        <Kpi
+          icon={<Trophy className="size-5" />}
+          tint="green"
+          label="Daily regulars"
+          value={h.dailyRegulars.toLocaleString()}
+          delta={`Active 5+ of the last 7 days · ${share(h.dailyRegulars, h.paying)}`}
+          deltaTone="positive"
+        />
+        <Kpi
+          icon={<Activity className="size-5" />}
+          tint="green"
+          label="Active this week / month"
+          value={`${h.wau.toLocaleString()} / ${h.mau.toLocaleString()}`}
+          delta={`${share(h.wau, h.paying)} weekly · ${share(h.mau, h.paying)} monthly`}
+        />
+        <Kpi
+          icon={<AlertTriangle className="size-5" />}
+          tint="rose"
+          label="Paying but not using it"
+          value={(h.goneQuiet14 + h.neverActive).toLocaleString()}
+          delta={`${h.goneQuiet14.toLocaleString()} quiet 14+ days · ${h.neverActive.toLocaleString()} never active`}
+          deltaTone="negative"
+        />
+      </div>
+
+      {/* ── Paying vs churned + monthly churn ───────────────────────── */}
+      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        <Card className="shadow-sm">
+          <CardContent className="p-6">
+            <div className="flex items-baseline justify-between">
+              <h3 className="font-semibold">Monthly churn</h3>
+              <span className="text-xs text-muted-foreground">
+                Community members only
+              </span>
+            </div>
+            <table className="mt-4 w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-muted-foreground">
+                  <th className="pb-2 font-medium">Month</th>
+                  <th className="pb-2 text-right font-medium">Paying at start</th>
+                  <th className="pb-2 text-right font-medium">Joined</th>
+                  <th className="pb-2 text-right font-medium">Canceled</th>
+                  <th className="pb-2 text-right font-medium">Churn</th>
+                </tr>
+              </thead>
+              <tbody>
+                {h.churnByMonth.map((r, i) => (
+                  <tr key={r.month} className="border-t">
+                    <td className="py-2">
+                      {monthLabel(r.month)}
+                      {i === 0 && (
+                        <span className="ml-1 text-xs text-muted-foreground">(so far)</span>
+                      )}
+                    </td>
+                    <td className="py-2 text-right">{r.startPaying.toLocaleString()}</td>
+                    <td className="py-2 text-right text-emerald-700">+{r.joined.toLocaleString()}</td>
+                    <td className="py-2 text-right text-rose-700">−{r.churned.toLocaleString()}</td>
+                    <td className="py-2 text-right font-bold">
+                      {r.churnPct == null ? "—" : `${r.churnPct}%`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="mt-3 text-[11px] text-muted-foreground">
+              Churn = members who canceled that month ÷ members paying on the 1st.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-sm">
+          <CardContent className="p-6">
+            <div className="flex items-baseline justify-between">
+              <h3 className="font-semibold">Retention by join month</h3>
+              <span className="text-xs text-muted-foreground">As of today</span>
+            </div>
+            <table className="mt-4 w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-muted-foreground">
+                  <th className="pb-2 font-medium">Joined</th>
+                  <th className="pb-2 text-right font-medium">Members</th>
+                  <th className="pb-2 text-right font-medium">Still paying</th>
+                  <th className="pb-2 text-right font-medium">Active last 30d</th>
+                </tr>
+              </thead>
+              <tbody>
+                {h.cohorts.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="py-3 text-muted-foreground">
+                      No members joined in this window.
+                    </td>
+                  </tr>
+                ) : (
+                  h.cohorts.map((c) => (
+                    <tr key={c.month} className="border-t">
+                      <td className="py-2">{monthLabel(c.month)}</td>
+                      <td className="py-2 text-right">{c.joined.toLocaleString()}</td>
+                      <td className="py-2 text-right font-bold">
+                        {c.stillPayingPct == null ? "—" : `${c.stillPayingPct}%`}
+                      </td>
+                      <td className="py-2 text-right">
+                        {c.activeLast30Pct == null ? "—" : `${c.activeLast30Pct}%`}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+            <p className="mt-3 text-[11px] text-muted-foreground">
+              Of the members who finished onboarding in each month, how many still
+              pay and how many used the app in the last 30 days.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ── Daily active chart ──────────────────────────────────────────── */}
+      <Card className="mt-6 shadow-sm">
+        <CardContent className="p-6">
+          <div className="flex items-baseline justify-between">
+            <h3 className="font-semibold">Paying members active each day</h3>
+            <span className="text-xs text-muted-foreground">Last 30 days</span>
+          </div>
+          <div className="mt-4">
+            <BarSeries
+              data={daily}
+              emptyLabel="No activity logged yet — this fills in once members complete workouts."
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Engagement detail ──────────────────────────────────────────── */}
+      <div className="mt-6 grid gap-4 lg:grid-cols-2">
         <Card className="shadow-sm">
           <CardContent className="p-6">
             <div className="flex items-baseline justify-between">
@@ -252,75 +351,51 @@ export default async function AdminOverview() {
           </CardContent>
         </Card>
 
-        {/* Active vs Inactive split — mirrors the "Text vs Voice" stacked bar */}
         <Card className="shadow-sm">
           <CardContent className="p-6">
             <div className="flex items-baseline justify-between">
               <h3 className="flex items-center gap-2 font-semibold">
-                <span className="text-primary">📊</span> Active vs Inactive
+                <span className="text-primary">📊</span> Staying vs Churned
               </h3>
-              <span className="text-xs text-muted-foreground">Last 7 days</span>
+              <span className="text-xs text-muted-foreground">All time</span>
             </div>
 
             <div className="mt-5">
               <div className="flex h-10 w-full overflow-hidden rounded-full bg-muted">
-                {activeShare > 0 && (
+                {stayingShare > 0 && (
                   <div
                     className="flex items-center justify-center bg-primary px-2 text-xs font-bold text-primary-foreground"
-                    style={{ width: `${activeShare * 100}%` }}
+                    style={{ width: `${stayingShare * 100}%` }}
                   >
-                    {activeShare > 0.12 && `${m.wau} active`}
+                    {stayingShare > 0.12 && `${h.paying.toLocaleString()} staying`}
                   </div>
                 )}
-                {inactiveShare > 0 && (
+                {stayingShare < 1 && everPaid > 0 && (
                   <div
                     className="flex items-center justify-center bg-amber-300 px-2 text-xs font-bold text-amber-900"
-                    style={{ width: `${inactiveShare * 100}%` }}
+                    style={{ width: `${(1 - stayingShare) * 100}%` }}
                   >
-                    {inactiveShare > 0.12 && `${m.activeSubs - m.wau} inactive`}
+                    {1 - stayingShare > 0.12 && `${h.churnedAllTime.toLocaleString()} churned`}
                   </div>
                 )}
-              </div>
-              <div className="mt-3 flex items-center gap-4 text-xs">
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="size-2.5 rounded-full bg-primary" />
-                  Active (last 7d)
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="size-2.5 rounded-full bg-amber-300" />
-                  Inactive
-                </span>
               </div>
             </div>
 
             <dl className="mt-5 space-y-2.5 text-sm">
               <div className="flex justify-between">
-                <dt className="text-muted-foreground">Active members</dt>
-                <dd>
-                  <span className="font-bold">{m.wau}</span>{" "}
-                  <span className="text-muted-foreground">
-                    @ {m.activeSubs > 0 ? `${Math.round((m.wau / m.activeSubs) * 100)}%` : "—"}
-                  </span>
-                </dd>
+                <dt className="text-muted-foreground">Community members (onboarded)</dt>
+                <dd className="font-bold">{h.members.toLocaleString()}</dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-muted-foreground">Total messages this month</dt>
-                <dd>
-                  <span className="font-bold">
-                    {(pulse.postsLast7 + pulse.commentsLast7).toLocaleString()}
-                  </span>{" "}
-                  <span className="text-muted-foreground">
-                    posts + comments (7d)
-                  </span>
+                <dt className="text-muted-foreground">Posts / comments / likes (7d)</dt>
+                <dd className="font-bold">
+                  {pulse.postsLast7} / {pulse.commentsLast7} / {pulse.likesLast7}
                 </dd>
               </div>
               <div className="flex justify-between border-t pt-3">
-                <dt className="font-semibold">Activation rate</dt>
+                <dt className="font-semibold">7-day retention (new members)</dt>
                 <dd className="font-bold">
-                  {m.activeSubs > 0
-                    ? `${Math.round((m.wau / m.activeSubs) * 100)}%`
-                    : "—"}{" "}
-                  of subscribers
+                  {m.retention7Pct == null ? "—" : `${m.retention7Pct}%`}
                 </dd>
               </div>
             </dl>
@@ -328,35 +403,35 @@ export default async function AdminOverview() {
         </Card>
       </div>
 
-      {/* ── Daily activity chart ──────────────────────────────────────────── */}
-      <Card className="mt-6 shadow-sm">
-        <CardContent className="p-6">
-          <div className="flex items-baseline justify-between">
-            <h3 className="font-semibold">Daily active members</h3>
-            <span className="text-xs text-muted-foreground">Last 30 days</span>
-          </div>
-          <div className="mt-4">
-            <BarSeries
-              data={daily}
-              emptyLabel="No activity logged yet — this fills in once members complete workouts."
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Retention nudge */}
-      {m.retention7Pct != null && m.retention7Pct < 30 && (
-        <div className="mt-6 flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-          <AlertTriangle className="size-5 shrink-0" />
-          <div>
-            <p className="font-semibold">7-day retention is below 30%.</p>
-            <p className="mt-0.5 text-xs">
-              Consider sending a "you've got this" email to members who don't
-              return within 3 days of signup, or a daily reminder push.
-            </p>
-          </div>
-        </div>
-      )}
+      {/* ── How these numbers are calculated ─────────────────────────── */}
+      <details className="mt-6 rounded-2xl border bg-card p-5 text-sm">
+        <summary className="cursor-pointer font-semibold">
+          How these numbers are calculated
+        </summary>
+        <ul className="mt-3 list-disc space-y-1.5 pl-5 text-muted-foreground">
+          <li>
+            <b>Community member</b>: created an app account and finished
+            onboarding. Admins and coaches are excluded. Skio subscribers who
+            never joined the app are not counted anywhere on this page.
+          </li>
+          <li>
+            <b>Paying</b>: has a Skio subscription that is active, trialing or
+            past due. <b>Churned</b>: has a canceled subscription and nothing
+            currently paying. The cancel date is when the subscription row
+            last changed to canceled.
+          </li>
+          <li>
+            <b>Active</b>: did something in the app that day (a workout,
+            check-in, post, comment, recipe save or challenge day). Just
+            opening the app and browsing isn't tracked yet.
+          </li>
+          <li>
+            <b>Community MRR</b>: paying members, minus trials, × $
+            {h.pricePerMemberUsd}/mo. This is an estimate. Discounts and plan
+            differences aren't taken into account.
+          </li>
+        </ul>
+      </details>
 
       {/* Quick links */}
       <div className="mt-8 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
@@ -367,6 +442,12 @@ export default async function AdminOverview() {
           subtitle="Engagement, retention, content perf."
         />
         <QuickLink
+          href="/admin/analytics/churn-risk"
+          icon={<AlertTriangle />}
+          title="Churn risk"
+          subtitle="Members going quiet."
+        />
+        <QuickLink
           href="/admin/members"
           icon={<Users />}
           title="Members"
@@ -374,20 +455,22 @@ export default async function AdminOverview() {
         />
         <QuickLink
           href="/admin/content"
-          icon={<Trophy />}
+          icon={<ArrowRight />}
           title="Content"
           subtitle="Workouts, recipes, challenges."
-        />
-        <QuickLink
-          href="/admin/invites"
-          icon={<ArrowRight />}
-          title="Admin invites"
-          subtitle="Generate revocable team invites."
         />
       </div>
 
       <FoundingMemberBonusButton />
     </div>
+  );
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="mb-3 mt-8 text-xs font-bold uppercase tracking-[0.2em] text-muted-foreground">
+      {children}
+    </h2>
   );
 }
 
