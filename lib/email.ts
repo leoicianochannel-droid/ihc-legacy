@@ -176,6 +176,58 @@ export function welcomeEmail(opts: { firstName: string; appUrl: string }): {
   return { subject, html };
 }
 
+/* Member invite — sent when an admin adds someone from /admin/members. */
+export function memberInviteEmail(opts: {
+  firstName: string | null;
+  email: string;
+  appUrl: string;
+  freeAccessUntil: Date | null;
+}): { subject: string; html: string } {
+  const name = opts.firstName?.trim() || null;
+  const subject = name
+    ? `${name}, you've been added to the Infinity Hoop community 💜`
+    : "You've been added to the Infinity Hoop community 💜";
+  const forever =
+    opts.freeAccessUntil != null && opts.freeAccessUntil.getUTCFullYear() >= 2099;
+  const accessLine = opts.freeAccessUntil
+    ? forever
+      ? `<p style="margin:0 0 16px;">Your membership is <strong>on us</strong>. No subscription needed.</p>`
+      : `<p style="margin:0 0 16px;">You have <strong>free access through ${escapeHtml(
+          opts.freeAccessUntil.toLocaleDateString("en-US", {
+            month: "long",
+            day: "numeric",
+            year: "numeric",
+            timeZone: "UTC",
+          }),
+        )}</strong>.</p>`
+    : "";
+  const signUpUrl = `${opts.appUrl}/sign-up`;
+  const html = shell({
+    title: subject,
+    preheader: "Your spot is ready. Create your account to get started.",
+    bodyHtml: `
+      <h1 style="font-family:Georgia,serif;font-size:28px;margin:0 0 12px;font-weight:700;">
+        ${name ? `Welcome, ${escapeHtml(name)}!` : "Welcome!"}
+      </h1>
+      <p style="margin:0 0 16px;">
+        Our team added you to the Infinity Hoop community: daily workouts,
+        recipes, challenges and a group of women who get what you're doing.
+      </p>
+      ${accessLine}
+      <p style="margin:0 0 16px;">
+        Create your account with <strong>${escapeHtml(opts.email)}</strong> so we
+        can match it to your spot.
+      </p>
+      <p style="margin:0 0 24px;text-align:center;">${button(signUpUrl, "Create my account →")}</p>
+      <p style="margin:0;font-size:13px;color:#6b7280;">
+        Reply to this email if you have any questions. It goes straight to
+        a real person on our team.
+      </p>
+    `,
+  });
+  return { subject, html };
+}
+
 /* Beta-expiry reminder — 7 days before free access ends. */
 export function betaExpiringEmail(opts: {
   firstName: string;

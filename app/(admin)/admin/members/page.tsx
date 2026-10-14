@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
 import { Search } from "lucide-react";
 import { MemberActionButtons } from "./member-action-buttons";
+import { AddMemberForm } from "./add-member-form";
 
 export const dynamic = "force-dynamic";
 
@@ -70,6 +71,8 @@ export default async function AdminMembersPage({
           </p>
         </div>
       </div>
+
+      <AddMemberForm />
 
       {/* Filter bar */}
       <Card>
