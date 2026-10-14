@@ -106,6 +106,35 @@ export default function LymphaticGuidePage() {
         </p>
       </div>
 
+      {/* Video tutorials */}
+      <div className="mt-7 space-y-5">
+        {[
+          {
+            title: "How to use the Infinity Flow",
+            sub: "Getting started · 4 min",
+            src: "https://okntwdbbmyzw9bvc.public.blob.vercel-storage.com/videos/how-to-use-flow-8M3CanEXW9qqmkHv7kvMB4C22l8uq7.mp4",
+          },
+          {
+            title: "Lymphatic tips & techniques",
+            sub: "Education · 3 min",
+            src: "https://okntwdbbmyzw9bvc.public.blob.vercel-storage.com/videos/lymphatic-tips-5R7cOGcutzLQnUidGHQJoDVaKYMrqF.mp4",
+          },
+        ].map((v) => (
+          <div key={v.title}>
+            <p className="mb-1.5 text-sm font-bold text-gray-900">{v.title}</p>
+            <p className="mb-2 text-xs text-gray-400">{v.sub}</p>
+            <video
+              src={v.src}
+              controls
+              playsInline
+              preload="metadata"
+              className="w-full rounded-2xl bg-black"
+              style={{ maxHeight: "420px" }}
+            />
+          </div>
+        ))}
+      </div>
+
       {/* Mode selector */}
       <div className="mt-6 flex flex-col gap-0 divide-y divide-gray-100 rounded-2xl border border-gray-100 overflow-hidden">
         {MODES.map((m) => (

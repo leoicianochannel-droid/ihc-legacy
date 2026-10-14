@@ -239,10 +239,12 @@ export async function markChallengeDayComplete(memberId: string, dayNumber: numb
     totalUnits = Number(unitCount ?? 0) || (challenge?.durationDays ?? mem.currentDay + 1);
   }
   const proposedNext = mem.currentDay + 1;
-  const isComplete = proposedNext > totalUnits;
-  // Cap currentDay at totalUnits so the UI doesn't show "Week 7 of 6". Set
-  // completedAt the first time the user crosses the finish line.
-  const nextCurrentDay = isComplete ? totalUnits : proposedNext;
+  // Always use the challenge's stated duration as the completion threshold.
+  // The week-grouped unit count can be lower than durationDays (when workouts
+  // repeat across weeks), which caused early-completion for the 45-day challenge.
+  const completionThreshold = challenge?.durationDays ?? totalUnits;
+  const isComplete = proposedNext > completionThreshold;
+  const nextCurrentDay = isComplete ? completionThreshold : proposedNext;
   await db
     .update(challengeMembers)
     .set({
@@ -266,6 +268,7 @@ export async function markChallengeDayComplete(memberId: string, dayNumber: numb
   if (isComplete && !mem.completedAt && challenge?.slug) {
     redirect(`/challenges/${challenge.slug}/complete`);
   }
+
 }
 
 /**
