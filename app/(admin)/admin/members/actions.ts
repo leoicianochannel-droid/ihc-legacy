@@ -1,8 +1,9 @@
 "use server";
 
 import { auth } from "@clerk/nextjs/server";
-import { db, users, memberPlans, streaks } from "@/lib/db";
+import { db, users, memberPlans, streaks, memberAdditions } from "@/lib/db";
 import { eq, sql } from "drizzle-orm";
+import { ensureMemberAdditionsTable } from "@/lib/member-additions";
 import { revalidatePath } from "next/cache";
 import { sendEmail, memberInviteEmail } from "@/lib/email";
 import { getAppUrl } from "@/lib/app-url";
@@ -123,23 +124,40 @@ export async function addMember(input: AddMemberInput): Promise<AddMemberResult>
   const firstName = input.firstName?.trim() || null;
   const lastName = input.lastName?.trim() || null;
   const adminName = [me.firstName, me.lastName].filter(Boolean).join(" ") || me.email;
-  const note = [`Added by ${adminName}`, input.note?.trim()].filter(Boolean).join(": ");
+  const userNote = input.note?.trim() || null;
+  const note = [`Added by ${adminName}`, userNote].filter(Boolean).join(": ");
 
-  const [created] = await db
-    .insert(users)
-    .values({
-      email,
-      firstName,
-      lastName,
-      role: "member",
-      isBetaTester: freeAccessUntil != null,
+  // The account and its "added by" record are written together, so there's
+  // never an admin-added member without a record of who added them and when.
+  await ensureMemberAdditionsTable();
+  const created = await db.transaction(async (tx) => {
+    const [u] = await tx
+      .insert(users)
+      .values({
+        email,
+        firstName,
+        lastName,
+        role: "member",
+        isBetaTester: freeAccessUntil != null,
+        freeAccessUntil,
+        betaNote: note,
+      })
+      .onConflictDoNothing()
+      .returning({ id: users.id });
+    if (!u) return null;
+    await tx.insert(streaks).values({ userId: u.id }).onConflictDoNothing();
+    await tx.insert(memberAdditions).values({
+      userId: u.id,
+      addedByUserId: me.id,
+      addedByName: adminName,
+      addedByEmail: me.email,
+      access: input.access,
       freeAccessUntil,
-      betaNote: note,
-    })
-    .onConflictDoNothing()
-    .returning({ id: users.id });
+      note: userNote,
+    });
+    return u;
+  });
   if (!created) return { ok: false, msg: `${email} was just added by someone else.` };
-  await db.insert(streaks).values({ userId: created.id }).onConflictDoNothing();
 
   revalidatePath("/admin/members");
   revalidatePath("/admin/beta");
@@ -155,6 +173,12 @@ export async function addMember(input: AddMemberInput): Promise<AddMemberResult>
     freeAccessUntil,
   });
   const sent = await sendEmail({ to: email, subject, html });
+  if (sent.ok) {
+    await db
+      .update(memberAdditions)
+      .set({ inviteEmailSent: true })
+      .where(eq(memberAdditions.userId, created.id));
+  }
   return sent.ok
     ? { ok: true, msg: `✓ Added ${who} and emailed them a sign-up link.` }
     : {

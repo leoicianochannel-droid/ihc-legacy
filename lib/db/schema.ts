@@ -859,6 +859,25 @@ export const migrationRecords = pgTable("migration_records", {
 
 /* ──────────────────────── Relations ──────────────────────────── */
 
+// Audit trail for members an admin added by hand from /admin/members.
+// Kept in its own table (not on users) so other tools that edit users,
+// like the beta/free-access note, can never overwrite it. The admin's name
+// and email are copied in at the time of adding so the record stays readable
+// even if that admin is later renamed or removed.
+export const memberAdditions = pgTable("member_additions", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  addedByUserId: uuid("added_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  addedByName: text("added_by_name").notNull(),
+  addedByEmail: text("added_by_email").notNull(),
+  addedAt: timestamp("added_at", { withTimezone: true }).defaultNow().notNull(),
+  access: text("access").notNull(),          // "none" | "until" | "forever"
+  freeAccessUntil: timestamp("free_access_until", { withTimezone: true }),
+  note: text("note"),
+  inviteEmailSent: boolean("invite_email_sent").default(false).notNull(),
+});
+
 export const usersRelations = relations(users, ({ one, many }) => ({
   subscription: one(subscriptions, {
     fields: [users.id],

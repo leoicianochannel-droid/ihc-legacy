@@ -1,6 +1,8 @@
 import Link from "next/link";
-import { db, users, subscriptions, activityLog } from "@/lib/db";
-import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
+import { db, users, subscriptions, activityLog, memberAdditions } from "@/lib/db";
+import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
+import { auth } from "@clerk/nextjs/server";
+import { ensureMemberAdditionsTable } from "@/lib/member-additions";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -61,6 +63,34 @@ export default async function AdminMembersPage({
 
   const totalPages = Math.max(1, Math.ceil(Number(total) / PAGE_SIZE));
 
+  // Who added each member (only members added from this page have a row).
+  await ensureMemberAdditionsTable();
+  const userIds = rows.map((r) => r.user.id);
+  const [additions, viewer] = await Promise.all([
+    userIds.length > 0
+      ? db.select().from(memberAdditions).where(inArray(memberAdditions.userId, userIds))
+      : Promise.resolve([]),
+    auth().then(({ userId }) =>
+      userId
+        ? db
+            .select({ timezone: users.timezone })
+            .from(users)
+            .where(eq(users.clerkId, userId))
+            .limit(1)
+            .then((r) => r[0])
+        : undefined,
+    ),
+  ]);
+  const addedBy = new Map(additions.map((a) => [a.userId, a]));
+  const viewerTz = viewer?.timezone || "America/New_York";
+  const fmtAddedAt = (d: Date) => {
+    try {
+      return formatDate(d, { hour: "numeric", minute: "2-digit", timeZone: viewerTz, timeZoneName: "short" });
+    } catch {
+      return formatDate(d, { hour: "numeric", minute: "2-digit", timeZone: "UTC", timeZoneName: "short" });
+    }
+  };
+
   return (
     <div className="container space-y-6 py-8">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -120,6 +150,7 @@ export default async function AdminMembersPage({
         <div className="space-y-2">
           {rows.map((row) => {
             const u = row.user;
+            const added = addedBy.get(u.id);
             const lastActive = row.lastActivity
               ? formatDate(row.lastActivity, { month: "short", day: "numeric", year: undefined })
               : "Never";
@@ -138,6 +169,11 @@ export default async function AdminMembersPage({
                           Beta
                         </Badge>
                       )}
+                      {!u.clerkId && (
+                        <Badge variant="outline" className="border-amber-400 text-amber-700">
+                          Hasn&apos;t signed up yet
+                        </Badge>
+                      )}
                       {row.subStatus && row.subStatus !== "active" && (
                         <Badge variant="outline" className="capitalize">
                           {row.subStatus}
@@ -154,6 +190,22 @@ export default async function AdminMembersPage({
                         <span className="capitalize">Tier: {u.tier}</span>
                       )}
                     </div>
+                    {added && (
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        Added by{" "}
+                        <span className="font-semibold text-foreground" title={added.addedByEmail}>
+                          {added.addedByName}
+                        </span>{" "}
+                        on {fmtAddedAt(added.addedAt)}
+                        {added.access === "forever"
+                          ? " · added with free access forever"
+                          : added.access === "until" && added.freeAccessUntil
+                            ? ` · added with free access until ${formatDate(added.freeAccessUntil, { timeZone: "UTC" })}`
+                            : ""}
+                        {added.inviteEmailSent ? " · invite emailed" : " · no invite email"}
+                        {added.note && <> · &ldquo;{added.note}&rdquo;</>}
+                      </div>
+                    )}
                   </div>
 
                   <MemberActionButtons
