@@ -210,6 +210,14 @@ export default async function WorkoutDetail({
             workoutId={w.id}
             title={w.title}
           />
+        ) : w.videoUrl ? (
+          <video
+            src={w.videoUrl}
+            controls
+            playsInline
+            preload="metadata"
+            className="aspect-video w-full"
+          />
         ) : (
           <div className="flex aspect-video items-center justify-center text-center text-white/70 px-6">
             This video will be available very soon — check back in a few hours!

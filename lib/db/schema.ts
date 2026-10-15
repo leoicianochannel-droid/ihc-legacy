@@ -193,6 +193,7 @@ export const workouts = pgTable("workouts", {
   cfStreamUid: text("cf_stream_uid"),
   cfStreamStatus: text("cf_stream_status"),  // queued, inprogress, ready, error
   cfCustomerCode: text("cf_customer_code"),  // for branded subdomain URLs
+  videoUrl: text("video_url"),              // direct video URL (e.g. Vercel Blob)
   thumbnailUrl: text("thumbnail_url"),
   caloriesBurnedEst: integer("calories_burned_est"),
   // Transcript: array of { t: number (seconds), text: string }
