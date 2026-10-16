@@ -11,10 +11,12 @@ export function TopBar({
   unreadCount = 0,
   unreadDmCount = 0,
   giftReady = false,
+  userId,
 }: {
   unreadCount?: number;
   unreadDmCount?: number;
   giftReady?: boolean;
+  userId?: string;
 }) {
   const pathname = usePathname();
   const messagesActive = pathname === "/messages" || pathname.startsWith("/messages/");
@@ -86,7 +88,17 @@ export function TopBar({
       >
         <HelpCircle className="size-5" />
       </Link>
-      <UserButton afterSignOutUrl="/" />
+      <UserButton afterSignOutUrl="/">
+        {userId && (
+          <UserButton.MenuItems>
+            <UserButton.Link
+              label="My profile"
+              labelIcon={<span style={{ fontSize: 14 }}>👤</span>}
+              href={`/profile/${userId}`}
+            />
+          </UserButton.MenuItems>
+        )}
+      </UserButton>
     </header>
   );
 }

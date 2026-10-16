@@ -157,7 +157,7 @@ export default async function MemberLayout({
     <div className="flex min-h-screen">
       <MemberSidebar isAdmin={dbUser?.role === "admin"} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar unreadCount={unreadCount} unreadDmCount={unreadDmCount} giftReady={giftStatus.readyToClaim.length > 0} />
+        <TopBar unreadCount={unreadCount} unreadDmCount={unreadDmCount} giftReady={giftStatus.readyToClaim.length > 0} userId={dbUser?.id} />
         <ChallengeBanner />
         <div className="flex-1 pb-[calc(env(safe-area-inset-bottom)+160px)] md:pb-16">
           {children}
