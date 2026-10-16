@@ -108,6 +108,8 @@ export const users = pgTable(
     shopDiscountCode: text("shop_discount_code").unique(),
 
     // Personalization (phase 2)
+    bio: text("bio"),                                   // short "about me" blurb
+    location: text("location"),                         // e.g. "Austin, TX"
     goal: text("goal"),                                 // e.g. "lose 20 lbs", "feel stronger"
     fitnessLevel: intensityEnum("fitness_level"),
     weeklyTargetMinutes: integer("weekly_target_minutes").default(120),

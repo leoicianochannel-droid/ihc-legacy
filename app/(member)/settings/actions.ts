@@ -28,3 +28,17 @@ export async function updateReminderTime(time: string | null) {
   await db.update(users).set({ reminderTime: time }).where(eq(users.clerkId, clerkId));
   revalidatePath("/settings");
 }
+
+export async function saveProfile({ bio, location }: { bio: string; location: string }) {
+  const { userId: clerkId } = await auth();
+  if (!clerkId) return;
+  await db
+    .update(users)
+    .set({
+      bio: bio.trim().slice(0, 400) || null,
+      location: location.trim().slice(0, 100) || null,
+    })
+    .where(eq(users.clerkId, clerkId));
+  revalidatePath("/settings");
+  revalidatePath("/community");
+}

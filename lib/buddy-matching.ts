@@ -13,13 +13,21 @@
  * Phase 3: upgrade to embedding-based similarity via OpenAI.
  */
 
-import { db, users, buddyMatches, conversations, messages, type User } from "./db";
-import { and, eq, ne, not, or, isNull, isNotNull, inArray, lt, sql } from "drizzle-orm";
+import { db, users, buddyMatches, conversations, messages, activityLog, type User } from "./db";
+import { and, eq, ne, not, or, isNull, isNotNull, inArray, lt, gt, sql } from "drizzle-orm";
 import { createNotification } from "./notifications";
 
 const MATCHABLE_ROLES: Array<"member" | "admin" | "coach"> = ["member", "admin", "coach"];
 
-/** Members eligible for matching: must have logged in (clerkId) and completed onboarding. */
+// Only match members who had activity in the last 45 days, or onboarded in the
+// last 45 days (brand-new members haven't had time to log activity yet).
+const RECENT_DAYS = 45;
+
+function recentCutoff() {
+  return new Date(Date.now() - RECENT_DAYS * 24 * 60 * 60 * 1000);
+}
+
+/** Members eligible for matching: onboarded + recently active. */
 const ACTIVE_MEMBER_FILTER = and(
   inArray(users.role, MATCHABLE_ROLES),
   isNotNull(users.clerkId),
@@ -114,12 +122,22 @@ export async function findCandidates(userId: string, limit = 5) {
     .where(or(eq(buddyMatches.userAId, userId), eq(buddyMatches.userBId, userId)));
   const excludeIds = new Set<string>([userId, ...existing.flatMap((e) => [e.a, e.b])]);
 
+  const cutoff = recentCutoff();
+  const recentlyActiveIds = new Set(
+    (await db
+      .selectDistinct({ userId: activityLog.userId })
+      .from(activityLog)
+      .where(gt(activityLog.createdAt, cutoff))
+    ).map((r) => r.userId)
+  );
+
   const pool = await db
     .select()
     .from(users)
     .where(ACTIVE_MEMBER_FILTER);
 
   const scored = pool
+    .filter((p) => recentlyActiveIds.has(p.id) || (p.onboardedAt != null && p.onboardedAt > cutoff))
     .filter((p) => !excludeIds.has(p.id))
     .map((p) => ({ user: p, ...scorePair(me, p) }))
     .sort((a, b) => b.score - a.score)
@@ -172,13 +190,27 @@ export async function runBulkMatch(): Promise<number> {
     .where(eq(buddyMatches.status, "active"));
   const alreadyMatchedIds = new Set(existing.flatMap((m) => [m.a, m.b]));
 
-  // Only members who have actually logged in and completed onboarding
+  // Only members who have actually logged in, completed onboarding, and were
+  // recently active — prevents matching active members with churned ones.
+  const cutoff = recentCutoff();
+  const recentlyActiveIds = new Set(
+    (await db
+      .selectDistinct({ userId: activityLog.userId })
+      .from(activityLog)
+      .where(gt(activityLog.createdAt, cutoff))
+    ).map((r) => r.userId)
+  );
+
   const allMembers = await db
     .select()
     .from(users)
     .where(ACTIVE_MEMBER_FILTER);
 
-  const pool = allMembers.filter((u) => !alreadyMatchedIds.has(u.id));
+  const pool = allMembers.filter(
+    (u) =>
+      !alreadyMatchedIds.has(u.id) &&
+      (recentlyActiveIds.has(u.id) || (u.onboardedAt != null && u.onboardedAt > cutoff))
+  );
   if (pool.length < 2) return 0;
 
   let pairsCreated = 0;
