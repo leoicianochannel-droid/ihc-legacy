@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Flame, Trophy, Dumbbell, MessageCircle, CalendarDays, CheckCircle2 } from "lucide-react";
+import { Flame, Trophy, Dumbbell, MessageCircle, CalendarDays, CheckCircle2, MapPin } from "lucide-react";
 import { formatDate, relativeTime } from "@/lib/utils";
 
 const TIER_LABELS: Record<string, string> = {
@@ -137,8 +137,19 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
             </span>
           </div>
 
+          {member.location && (
+            <p className="mt-2 flex items-center gap-1 text-sm text-muted-foreground">
+              <MapPin className="size-3.5 shrink-0" />
+              {member.location}
+            </p>
+          )}
+
+          {member.bio && (
+            <p className="mt-2 text-sm leading-relaxed text-foreground/80">{member.bio}</p>
+          )}
+
           {member.goal && (
-            <p className="mt-3 text-sm text-muted-foreground">
+            <p className="mt-2 text-sm text-muted-foreground">
               <span className="font-semibold text-foreground">Goal:</span> {member.goal}
             </p>
           )}
