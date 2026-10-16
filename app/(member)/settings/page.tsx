@@ -15,7 +15,6 @@ import { NotificationsToggle } from "@/components/pwa/notifications-toggle";
 import { ReminderTimePicker } from "@/components/pwa/reminder-time-picker";
 import { TimezoneSelector } from "./timezone-selector";
 import { AvatarUploader } from "@/components/member/avatar-uploader";
-import { ProfileEditor } from "./profile-editor";
 
 export default async function SettingsPage() {
   const { userId: clerkId } = await auth();
@@ -59,15 +58,6 @@ export default async function SettingsPage() {
             <p className="font-semibold text-foreground">Tap your photo to change it</p>
             <p className="mt-0.5">Visible to your accountability buddy and in the community feed.</p>
           </div>
-        </CardContent>
-      </Card>
-
-      <Card className="mt-4">
-        <CardHeader>
-          <CardTitle>About you</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ProfileEditor initialBio={me.bio ?? null} initialLocation={me.location ?? null} />
         </CardContent>
       </Card>
 
