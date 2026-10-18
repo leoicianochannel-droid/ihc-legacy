@@ -68,7 +68,7 @@ export default async function MembersPage({
           {query ? `No members found for "${query}"` : "No members yet."}
         </div>
       ) : (
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           {members.map((m) => {
             const name = [m.firstName, m.lastName].filter(Boolean).join(" ") || "Member";
             const initials = [m.firstName, m.lastName]

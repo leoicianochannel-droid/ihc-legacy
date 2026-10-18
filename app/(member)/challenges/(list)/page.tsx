@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { WorkoutsHeader } from "@/components/member/workouts-section";
 import { db, challenges, challengeMembers, programs, programMembers } from "@/lib/db";
 import { auth } from "@clerk/nextjs/server";
 import { and, or, eq, asc, isNull, lte, sql } from "drizzle-orm";
@@ -6,7 +7,7 @@ import { db as d, users } from "@/lib/db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Trophy, Calendar, Gift, ArrowRight, PlayCircle, Lock } from "lucide-react";
+import { Trophy, Calendar, Gift, ArrowRight, Lock } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -64,25 +65,7 @@ export default async function ChallengesPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 md:px-10 md:py-8">
-      <div className="mb-6">
-        <h1 className="font-display text-4xl font-bold">Workouts</h1>
-        <p className="mt-1 text-muted-foreground">
-          Time-bound transformations. Daily unlocks. Real prizes. Real results.
-        </p>
-      </div>
-
-      {/* Tab switcher */}
-      <div className="mb-6 flex gap-2">
-        <Link
-          href="/workouts"
-          className="inline-flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-sm font-semibold text-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
-        >
-          <PlayCircle className="size-4" /> Single Sessions
-        </Link>
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-1.5 text-sm font-semibold text-primary-foreground">
-          <Trophy className="size-4" /> Challenges
-        </span>
-      </div>
+      <WorkoutsHeader subtitle="Time-bound transformations. Daily unlocks. Real prizes. Real results." />
 
       {/* ── Programs (e.g. 2-Week Pre-Hoop) ── */}
       {activePrograms.length > 0 && (

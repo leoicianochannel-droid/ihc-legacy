@@ -93,7 +93,7 @@ export default function LymphaticGuidePage() {
   const ac = ACCENT[phase.color];
 
   return (
-    <div className="mx-auto max-w-2xl px-5 py-6 md:px-8 md:py-8">
+    <div className="mx-auto max-w-2xl px-4 pb-6 pt-2 md:px-10 md:pb-8">
 
       {/* Hero */}
       <div>

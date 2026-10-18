@@ -4,7 +4,9 @@ import { db, workouts, users, activityLog } from "@/lib/db";
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { PlayCircle, Trophy, Lock, Flame, Droplets } from "lucide-react";
+import { PlayCircle, Lock } from "lucide-react";
+import { WorkoutsHeader } from "@/components/member/workouts-section";
+import { ChipRow } from "@/components/member/chip-row";
 import { cn } from "@/lib/utils";
 import { getEffectiveUnlockDay } from "@/lib/workout-access";
 
@@ -84,57 +86,21 @@ export default async function WorkoutsPage({
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 md:px-10 md:py-8">
-      <div className="mb-6">
-        <h1 className="font-display text-4xl font-bold">Workouts</h1>
-        <p className="mt-1 text-muted-foreground">
-          Pick your length, intensity, or body focus.
-        </p>
-      </div>
+      <WorkoutsHeader subtitle="Pick your length, intensity, or body focus." />
 
-      {/* Tab switcher */}
-      <div className="mb-6 flex gap-2">
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-1.5 text-sm font-semibold text-primary-foreground">
-          <PlayCircle className="size-4" /> Single Sessions
-        </span>
-        <Link
-          href="/challenges"
-          className="inline-flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-sm font-semibold text-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
-        >
-          <Trophy className="size-4" /> Challenges
-        </Link>
-        <Link
-          href="/workouts/75"
-          className="inline-flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-sm font-semibold text-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
-        >
-          <Flame className="size-4" /> IH 75
-        </Link>
-        <Link
-          href="/workouts/lymphatic"
-          className="inline-flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-sm font-semibold text-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
-        >
-          <Droplets className="size-4" /> Lymphatic Flow
-        </Link>
-      </div>
-
-      <div className="mb-8 flex flex-wrap items-center gap-2">
-        <span className="mr-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Difficulty</span>
-        {([
-          { label: "All", href: "/workouts", value: null },
-          { label: "Beginner", href: "/workouts?intensity=beginner", value: "beginner" },
-          { label: "Intermediate", href: "/workouts?intensity=intermediate", value: "intermediate" },
-          { label: "Advanced", href: "/workouts?intensity=advanced", value: "advanced" },
-        ] as const).map((opt) => {
-          const active = opt.value === activeIntensity;
-          return (
-            <Link key={opt.label} href={opt.href}
-              className={cn(
-                "rounded-full border px-3 py-1 text-xs font-semibold transition-colors",
-                active ? "border-primary bg-primary text-primary-foreground" : "bg-background text-foreground/70 hover:bg-muted hover:text-foreground"
-              )}
-            >{opt.label}</Link>
-          );
-        })}
-      </div>
+      <ChipRow
+        label="Difficulty"
+        className="mb-8"
+        options={[
+          { key: "all", label: "All", href: "/workouts", active: activeIntensity === null },
+          ...INTENSITIES.map((i) => ({
+            key: i,
+            label: i[0].toUpperCase() + i.slice(1),
+            href: `/workouts?intensity=${i}`,
+            active: activeIntensity === i,
+          })),
+        ]}
+      />
 
       {list.length === 0 ? (
         <Card>

@@ -27,7 +27,7 @@ export default async function IH75Page() {
 
   if (!data.enrollment) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-8 md:px-10">
+      <div className="mx-auto max-w-2xl px-4 pb-8 pt-2 md:px-10">
         {/* Header */}
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-primary/10">
@@ -97,7 +97,7 @@ export default async function IH75Page() {
   const allTiers = CHALLENGE_REWARDS["75-hard"] ?? [];
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8 md:px-10 space-y-6">
+    <div className="mx-auto max-w-2xl px-4 pb-8 pt-2 md:px-10 space-y-6">
       {/* Header */}
       <div>
         <div className="flex items-center justify-between gap-3">

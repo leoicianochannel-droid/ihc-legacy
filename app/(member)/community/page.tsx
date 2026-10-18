@@ -218,8 +218,8 @@ export default async function CommunityPage({
       </div>
 
       {/* Category filter chips */}
-      <div className="sticky top-0 z-10 bg-white/95 px-5 pb-3 pt-1 backdrop-blur supports-[backdrop-filter]:bg-white/85">
-        <div className="flex gap-2 overflow-x-auto pb-1">
+      <div className="sticky top-14 z-10 bg-white/95 px-5 pb-3 pt-1 backdrop-blur supports-[backdrop-filter]:bg-white/85">
+        <div className="scroll-row -mx-5 gap-2 px-5 pb-1">
           {CATEGORIES.map((c) => {
             const active =
               !myPostsActive &&
@@ -271,7 +271,7 @@ export default async function CommunityPage({
               See all <ChevronRight className="size-4" />
             </Link>
           </div>
-          <div className="flex gap-4 overflow-x-auto pb-1">
+          <div className="scroll-row -mx-5 gap-4 px-5 pb-1">
             {streakLeaders.map((row, i) => (
               <Link key={row.userId} href={`/profile/${row.userId}`} className="flex shrink-0 flex-col items-center gap-1">
                 <Avatar className="size-11 ring-2 ring-primary/20">

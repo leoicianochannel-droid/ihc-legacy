@@ -83,6 +83,52 @@
   html {
     scroll-behavior: smooth;
   }
+  /* Never let one wide element turn the whole page into a sideways-panning
+     canvas on phones. `clip` (unlike `hidden`) doesn't create a scroll
+     container, so sticky headers keep working. */
+  html,
+  body {
+    overflow-x: clip;
+  }
+}
+
+@layer utilities {
+  /* Horizontally swipeable chip/tab row, iOS style: no visible scrollbar,
+     momentum scrolling, soft snap, and it doesn't drag the page sideways.
+     Pair with .scroll-row-bleed to run edge-to-edge on phones. */
+  .scroll-row {
+    display: flex;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .scroll-row::-webkit-scrollbar {
+    display: none;
+  }
+  .scroll-row > * {
+    flex-shrink: 0;
+    scroll-snap-align: start;
+  }
+  /* Bleed past the 16px page gutter so chips scroll off the screen edge
+     instead of being cut off mid-word at the padding line. */
+  .scroll-row-bleed {
+    margin-left: -1rem;
+    margin-right: -1rem;
+    padding-left: 1rem;
+    padding-right: 1rem;
+    scroll-padding-left: 1rem;
+  }
+  @media (min-width: 768px) {
+    .scroll-row-bleed {
+      margin-left: 0;
+      margin-right: 0;
+      padding-left: 0;
+      padding-right: 0;
+      scroll-padding-left: 0;
+    }
+  }
 }
 
 @layer components {

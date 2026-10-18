@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ChipRow } from "@/components/member/chip-row";
 import { auth } from "@clerk/nextjs/server";
 import { db, recipes, users } from "@/lib/db";
 import { and, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
@@ -154,11 +155,11 @@ export default async function RecipesPage({
       </div>
 
       {/* Tab switcher */}
-      <div className="mb-6 flex flex-wrap gap-2">
+      <div className="scroll-row scroll-row-bleed mb-6 gap-2 py-1">
         <Link
           href="/recipes"
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold transition-colors",
+            "inline-flex h-10 items-center gap-1.5 whitespace-nowrap rounded-full px-4 text-sm font-semibold transition-colors",
             activeTab === "all"
               ? "bg-primary text-primary-foreground"
               : "border border-border text-foreground/70 hover:bg-muted hover:text-foreground"
@@ -169,7 +170,7 @@ export default async function RecipesPage({
         <Link
           href="/recipes?tab=saved"
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold transition-colors",
+            "inline-flex h-10 items-center gap-1.5 whitespace-nowrap rounded-full px-4 text-sm font-semibold transition-colors",
             activeTab === "saved"
               ? "bg-primary text-primary-foreground"
               : "border border-border text-foreground/70 hover:bg-muted hover:text-foreground"
@@ -187,7 +188,7 @@ export default async function RecipesPage({
         </Link>
         <Link
           href="/grocery"
-          className="inline-flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm font-semibold text-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
+          className="inline-flex h-10 items-center gap-1.5 whitespace-nowrap rounded-full border border-border px-4 text-sm font-semibold text-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
         >
           <ShoppingCart className="size-4" /> Grocery List
         </Link>
@@ -346,27 +347,16 @@ function FilterRow({
   toHref: (v: string | null) => string;
 }) {
   return (
-    <div className="mb-2 flex items-center gap-2 overflow-x-auto pb-1">
-      <span className="shrink-0 pr-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-        {label}
-      </span>
-      {options.map((opt) => {
-        const active = opt.value === activeValue;
-        return (
-          <Link
-            key={opt.value ?? "all"}
-            href={toHref(opt.value)}
-            className={cn(
-              "shrink-0 rounded-full border px-3 py-1 text-xs font-semibold transition-colors",
-              active
-                ? "border-primary bg-primary text-primary-foreground"
-                : "bg-background text-foreground/70 hover:bg-muted"
-            )}
-          >
-            {opt.label}
-          </Link>
-        );
-      })}
-    </div>
+    <ChipRow
+      label={label}
+      size="xs"
+      className="mb-1"
+      options={options.map((opt) => ({
+        key: opt.value ?? "all",
+        label: opt.label,
+        href: toHref(opt.value),
+        active: opt.value === activeValue,
+      }))}
+    />
   );
 }

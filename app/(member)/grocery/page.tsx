@@ -60,7 +60,7 @@ export default async function GroceryPage() {
       </div>
 
       {/* Tab switcher */}
-      <div className="mb-6 flex gap-2">
+      <div className="scroll-row scroll-row-bleed mb-6 gap-2 py-1">
         <Link
           href="/recipes"
           className="inline-flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-sm font-semibold text-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
