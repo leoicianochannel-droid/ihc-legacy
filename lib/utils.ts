@@ -73,3 +73,11 @@ export function relativeTime(date: Date | string): string {
   if (days < 7) return `${days}d ago`;
   return formatDate(d, { month: "short", day: "numeric", year: undefined });
 }
+
+/**
+ * Swap em/en dashes used as punctuation for commas, so generated copy
+ * reads cleanly. Leaves ordinary hyphens alone.
+ */
+export function noDashes(text: string): string {
+  return text.replace(/\s*[—–]\s*/g, ", ").replace(/,\s*,/g, ",");
+}

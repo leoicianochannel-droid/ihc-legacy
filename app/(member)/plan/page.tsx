@@ -3,14 +3,10 @@ import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { db, users, memberPlans, planQuestionnaires } from "@/lib/db";
 import { eq } from "drizzle-orm";
-import type { GeneratedPlan, PlanWeek } from "@/lib/plan-types";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import type { GeneratedPlan } from "@/lib/plan-types";
+import { noDashes } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import {
-  PlayCircle, Salad, Trophy, ArrowRight, Sparkles,
-  CheckCircle2, ChevronDown, ChevronUp, Calendar, Lightbulb,
-} from "lucide-react";
+import { ArrowRight, PartyPopper, Sparkles } from "lucide-react";
 import { PlanWeekCard } from "@/components/member/plan-week-card";
 import { RefreshPlanButton } from "@/components/member/refresh-plan-button";
 
@@ -50,7 +46,7 @@ export default async function PlanPage({
   // Fetch daysPerWeek from the linked questionnaire (for workout day labels)
   const [questionnaire] = planRow.questionnaireId
     ? await db
-        .select({ daysPerWeek: planQuestionnaires.daysPerWeek })
+        .select({ daysPerWeek: planQuestionnaires.daysPerWeek, goal: planQuestionnaires.goal })
         .from(planQuestionnaires)
         .where(eq(planQuestionnaires.id, planRow.questionnaireId))
         .limit(1)
@@ -58,69 +54,84 @@ export default async function PlanPage({
   const daysPerWeek = questionnaire?.daysPerWeek ?? null;
 
   const msSinceStart = Date.now() - new Date(startedAt).getTime();
-  const daysSinceStart = Math.floor(msSinceStart / (1000 * 60 * 60 * 24));
+  const daysSinceStart = Math.max(0, Math.floor(msSinceStart / (1000 * 60 * 60 * 24)));
   // Allow currentWeek to reach 9 so week 8 flips to isCompleted (week.week < 9 = true)
   const currentWeek = Math.min(9, Math.max(1, Math.floor(daysSinceStart / 7) + 1));
-  const overallProgress = Math.round((daysSinceStart / 56) * 100);
+  const finished = currentWeek > 8;
+  const dayNumber = Math.min(56, daysSinceStart + 1);
+  const progressPct = finished ? 100 : Math.round((dayNumber / 56) * 100);
+
+  // One clean line built from their answers, instead of the stored blurb.
+  const GOAL_TEXT: Record<string, string> = {
+    weight_loss: "weight loss",
+    toning: "toning and strength",
+    cardio: "cardio",
+    stress_relief: "stress relief",
+  };
+  const summary =
+    daysPerWeek && questionnaire?.goal
+      ? `${daysPerWeek} workouts a week, built for ${GOAL_TEXT[questionnaire.goal] ?? "your goal"}. Go at your own pace.`
+      : noDashes(plan.summary);
+  const startedLabel = new Date(startedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-6 md:px-10 md:py-10">
-
-      {/* ── Hero ──────────────────────────────────────────────── */}
-      {isNew && (
-        <div className="mb-8 rounded-3xl bg-primary px-8 py-10 text-white text-center">
-          <Sparkles className="mx-auto mb-3 size-10 opacity-80" />
-          <h1 className="font-display text-2xl font-bold md:text-4xl">
-            Your plan is ready, {me.firstName ?? "friend"}! 🎉
+    <div className="mx-auto max-w-2xl px-4 py-6 md:px-10 md:py-8">
+      {isNew ? (
+        <div className="mb-6 rounded-2xl bg-primary px-5 py-6 text-primary-foreground">
+          <Sparkles className="size-6 opacity-80" />
+          <h1 className="mt-2 font-display text-3xl font-bold leading-tight">
+            Your plan is ready{me.firstName ? `, ${me.firstName}` : ""}!
           </h1>
-          <p className="mt-3 text-white/80 max-w-md mx-auto">
-            {plan.summary}
-          </p>
-          <Button asChild variant="outline" className="mt-6 border-white/30 text-white hover:bg-white/10">
-            <Link href="/dashboard">Go to my dashboard <ArrowRight className="size-4" /></Link>
+          <p className="mt-1 text-sm opacity-90">{summary}</p>
+          <Button asChild variant="secondary" className="mt-4">
+            <Link href="/dashboard">Start today <ArrowRight className="size-4" /></Link>
           </Button>
         </div>
-      )}
-
-      {!isNew && (
-        <div className="mb-8">
-          <h1 className="font-display text-3xl font-bold md:text-4xl">{plan.title}</h1>
-          <p className="mt-2 text-muted-foreground">{plan.summary}</p>
+      ) : (
+        <div className="mb-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-primary">My plan</p>
+          <h1 className="mt-1 font-display text-2xl font-bold leading-tight md:text-3xl">{noDashes(plan.title)}</h1>
+          <p className="mt-1 text-muted-foreground">{summary}</p>
         </div>
       )}
 
-      {/* ── Progress bar ─────────────────────────────────────── */}
-      <Card className="mb-8 p-6">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <div className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Your progress</div>
-            <div className="mt-1 font-display text-2xl font-bold">
-              Week {Math.min(currentWeek, 8)} <span className="text-muted-foreground font-sans text-base font-normal">of 8</span>
+      {/* Progress */}
+      <div className="mb-6 rounded-2xl border bg-card p-4">
+        {finished ? (
+          <div className="flex items-center gap-3">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+              <PartyPopper className="size-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">You finished all 8 weeks</p>
+              <p className="text-sm text-muted-foreground">Keep the habit going with any workout.</p>
             </div>
+            <Button asChild size="sm" className="shrink-0">
+              <Link href="/workouts">Workouts</Link>
+            </Button>
           </div>
-          <div className="text-right">
-            <div className="font-display text-3xl font-bold text-primary">{Math.min(overallProgress, 100)}%</div>
-            <div className="text-xs text-muted-foreground">complete</div>
-          </div>
-        </div>
-        <div className="h-3 w-full overflow-hidden rounded-full bg-muted">
-          <div
-            className="h-full rounded-full bg-primary transition-all duration-1000"
-            style={{ width: `${Math.min(overallProgress, 100)}%` }}
-          />
-        </div>
-        <div className="mt-2 flex justify-between text-xs text-muted-foreground">
-          <span>Day 1</span>
-          <span>Day 56</span>
-        </div>
-      </Card>
+        ) : (
+          <>
+            <div className="flex items-baseline justify-between">
+              <p className="font-semibold">
+                Week {currentWeek} <span className="font-normal text-muted-foreground">of 8</span>
+              </p>
+              <p className="text-sm text-muted-foreground">Day {dayNumber} of 56</p>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+              <div className="h-full rounded-full bg-primary" style={{ width: `${progressPct}%` }} />
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">Started {startedLabel}</p>
+          </>
+        )}
+      </div>
 
-      {/* ── Week cards ───────────────────────────────────────── */}
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground">Your weeks</h2>
+      {/* Weeks */}
+      <div className="mb-2 flex items-center justify-between px-1">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your 8 weeks</h2>
         <RefreshPlanButton />
       </div>
-      <div className="space-y-4">
+      <div className="space-y-2">
         {plan.weeks.map((week, i) => (
           <PlanWeekCard
             key={week.week}
@@ -131,21 +142,6 @@ export default async function PlanPage({
             daysPerWeek={daysPerWeek}
           />
         ))}
-      </div>
-
-      {/* ── Footer CTA ───────────────────────────────────────── */}
-      <div className="mt-10 rounded-2xl border bg-muted/40 p-6 text-center">
-        <p className="text-sm text-muted-foreground">
-          Your plan runs for <strong>8 weeks</strong> from {new Date(startedAt).toLocaleDateString("en-US", { month: "long", day: "numeric" })}. Stay consistent and you'll feel the difference.
-        </p>
-        <div className="mt-4 flex flex-wrap justify-center gap-3">
-          <Button asChild variant="default">
-            <Link href="/workouts">Browse all workouts</Link>
-          </Button>
-          <Button asChild variant="outline">
-            <Link href="/dashboard">Back to dashboard</Link>
-          </Button>
-        </div>
       </div>
     </div>
   );

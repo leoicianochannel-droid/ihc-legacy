@@ -123,7 +123,8 @@ INSTRUCTIONS:
 4. Assign 2–3 recipes per week filtered by dietary preference (${answers.dietaryPreference}).
 5. If a challenge exists, assign it starting in week 3 or 4 (once foundation is built).
 6. CRITICAL: Each week must have a DIFFERENT set of workouts. Never assign the same workout to two consecutive weeks. Spread workouts so members experience variety — repeating a workout is only acceptable after a gap of at least 3 weeks. The most common mistake is assigning the same 5 workouts to every week — DO NOT do this.
-7. Return ONLY valid JSON — no markdown, no explanation, no code fences.
+7. Copy style for title, summary, theme, description and tip: short, warm, plain English, like a pro copywriter. Never use em dashes or en dashes.
+8. Return ONLY valid JSON — no markdown, no explanation, no code fences.
 
 Return this exact JSON shape:
 {
@@ -275,7 +276,7 @@ function buildFallbackPlan(
   };
   return {
     title: goalTitles[answers.goal] ?? "Your 8-Week Hoop Plan",
-    summary: `This plan is built around your goal to ${answers.goal.replace("_", " ")} with ${answers.daysPerWeek} sessions per week. Start at your own pace — consistency beats intensity every time.`,
+    summary: `${answers.daysPerWeek} workouts a week, built around your goal. Go at your own pace. Consistency beats intensity.`,
     weeks,
   };
 }

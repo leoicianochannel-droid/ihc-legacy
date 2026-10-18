@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { cn } from "@/lib/utils";
+import { cn, noDashes } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  PlayCircle, Salad, Trophy, ChevronDown, ChevronUp,
+  PlayCircle, Salad, Trophy, ChevronDown,
   CheckCircle2, Lightbulb, RefreshCw, Loader2, X,
 } from "lucide-react";
 import type { PlanWeek, PlanWorkoutRef } from "@/lib/plan-types";
@@ -49,7 +49,12 @@ export function PlanWeekCard({
   daysPerWeek?: number | null;
 }) {
   const [open, setOpen] = useState(isCurrent);
-  const [week, setWeek] = useState(initialWeek);
+  const [week, setWeek] = useState(() => ({
+    ...initialWeek,
+    theme: noDashes(initialWeek.theme),
+    description: noDashes(initialWeek.description),
+    tip: initialWeek.tip ? noDashes(initialWeek.tip) : initialWeek.tip,
+  }));
   const [swapState, setSwapState] = useState<SwapState | null>(null);
 
   async function handleSwapStart(workoutIndex: number, currentWorkoutId: string) {
@@ -93,73 +98,53 @@ export function PlanWeekCard({
   return (
     <Card
       className={cn(
-        "overflow-hidden transition-all",
-        isCurrent && "border-primary ring-2 ring-primary/20",
-        isCompleted && "opacity-70"
+        "overflow-hidden rounded-2xl shadow-none transition-colors",
+        isCurrent && "border-primary/60"
       )}
     >
       {/* Header row */}
       <button
-        className="flex w-full items-center gap-4 p-4 text-left md:p-6"
+        type="button"
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 p-4 text-left active:bg-muted/50"
         onClick={() => setOpen((o) => !o)}
       >
         <div
           className={cn(
-            "flex size-12 shrink-0 items-center justify-center rounded-full text-sm font-bold",
+            "flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-bold",
             isCompleted
               ? "bg-emerald-100 text-emerald-700"
               : isCurrent
-              ? "bg-primary text-white"
+              ? "bg-primary text-primary-foreground"
               : "bg-muted text-muted-foreground"
           )}
         >
-          {isCompleted ? (
-            <CheckCircle2 className="size-6" />
-          ) : (
-            <span>W{week.week}</span>
-          )}
+          {isCompleted ? <CheckCircle2 className="size-5" /> : week.week}
         </div>
 
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-display text-lg font-bold leading-tight">{week.theme}</span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className={cn("truncate font-semibold", isCompleted && "text-foreground/70")}>{week.theme}</span>
             {isCurrent && (
-              <Badge className="text-[10px] uppercase tracking-wider">Current week</Badge>
-            )}
-            {isCompleted && (
-              <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-200">
-                Complete ✓
-              </Badge>
-            )}
-          </div>
-          <p className="mt-0.5 text-sm text-muted-foreground line-clamp-1">{week.description}</p>
-          <div className="mt-1 flex flex-wrap gap-3 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <PlayCircle className="size-3" />
-              {week.workouts.length > 0 && daysPerWeek && DAY_PATTERNS[daysPerWeek] ? (
-                <span>
-                  {DAY_PATTERNS[daysPerWeek].slice(0, week.workouts.length).map(d => d.slice(0, 3)).join(" · ")}
-                </span>
-              ) : (
-                <span>{week.workouts.length} workout{week.workouts.length !== 1 ? "s" : ""}</span>
-              )}
-            </span>
-            {week.recipes.length > 0 && (
-              <span className="flex items-center gap-1">
-                <Salad className="size-3" /> {week.recipes.length} recipe{week.recipes.length !== 1 ? "s" : ""}
-              </span>
-            )}
-            {week.challengeSlug && (
-              <span className="flex items-center gap-1 text-primary">
-                <Trophy className="size-3" /> Challenge active
+              <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+                This week
               </span>
             )}
           </div>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Week {week.week}
+            {" · "}
+            {week.workouts.length > 0 && daysPerWeek && DAY_PATTERNS[daysPerWeek]
+              ? DAY_PATTERNS[daysPerWeek].slice(0, week.workouts.length).map((d) => d.slice(0, 3)).join(", ")
+              : `${week.workouts.length} workout${week.workouts.length !== 1 ? "s" : ""}`}
+            {week.recipes.length > 0 && ` · ${week.recipes.length} recipe${week.recipes.length !== 1 ? "s" : ""}`}
+            {week.challengeSlug && " · Challenge"}
+          </p>
         </div>
 
-        <div className="shrink-0 text-muted-foreground">
-          {open ? <ChevronUp className="size-5" /> : <ChevronDown className="size-5" />}
-        </div>
+        <ChevronDown
+          className={cn("size-5 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
+        />
       </button>
 
       {/* Expanded content */}
@@ -218,7 +203,7 @@ export function PlanWeekCard({
                         </div>
                       </Link>
 
-                      {/* Swap button — shown on hover, outside the Link */}
+                      {/* Swap button: always visible on phones, on hover on desktop */}
                       <button
                         type="button"
                         onClick={() => isSwapping ? setSwapState(null) : handleSwapStart(i, w.workoutId)}
@@ -226,7 +211,7 @@ export function PlanWeekCard({
                           "absolute right-2 top-2 rounded-full p-1.5 border bg-background transition-all",
                           isSwapping
                             ? "opacity-100 border-primary/40 text-primary"
-                            : "opacity-0 group-hover/swap:opacity-100 text-muted-foreground hover:text-primary hover:border-primary/40"
+                            : "text-muted-foreground hover:text-primary hover:border-primary/40 md:opacity-0 md:group-hover/swap:opacity-100"
                         )}
                         title={isSwapping ? "Cancel swap" : "Swap this workout"}
                       >
