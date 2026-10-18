@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { WorkoutsHeader } from "@/components/member/workouts-section";
+import { ProgramCard } from "@/components/member/program-card";
 import { db, challenges, challengeMembers, programs, programMembers } from "@/lib/db";
 import { auth } from "@clerk/nextjs/server";
 import { and, or, eq, asc, isNull, lte, sql } from "drizzle-orm";
@@ -54,14 +55,16 @@ export default async function ChallengesPage() {
     .where(eq(programs.isActive, true))
     .orderBy(asc(programs.sortOrder));
 
-  const myProgramIds = me
-    ? (
-        await db
-          .select({ id: programMembers.programId })
-          .from(programMembers)
-          .where(eq(programMembers.userId, me.id))
-      ).map((r) => r.id)
-    : [];
+  const myPrograms = new Map(
+    me
+      ? (
+          await db
+            .select({ id: programMembers.programId, currentDay: programMembers.currentDay, completedAt: programMembers.completedAt })
+            .from(programMembers)
+            .where(eq(programMembers.userId, me.id))
+        ).map((r) => [r.id, { currentDay: r.currentDay, completed: !!r.completedAt }])
+      : [],
+  );
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 md:px-10 md:py-8">
@@ -70,34 +73,11 @@ export default async function ChallengesPage() {
       {/* ── Programs (e.g. 2-Week Pre-Hoop) ── */}
       {activePrograms.length > 0 && (
         <div className="mb-10">
-          <h2 className="mb-4 font-display text-2xl font-bold">Programs</h2>
-          <div className="grid gap-6 md:grid-cols-2">
-            {activePrograms.map((p) => {
-              const joined = myProgramIds.includes(p.id);
-              return (
-                <Card key={p.id} className="overflow-hidden">
-                  <div
-                    className="relative aspect-[16/9] bg-cover bg-center hoop-gradient-bold"
-                    style={p.coverUrl ? { backgroundImage: `url('${p.coverUrl}')` } : undefined}
-                  >
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                    <div className="absolute inset-x-0 bottom-0 p-6 text-white">
-                      <Badge variant="gold">{p.durationDays}-day program</Badge>
-                      <h3 className="mt-2 font-display text-3xl font-bold">{p.title}</h3>
-                      {p.subtitle && <p className="text-sm opacity-90">{p.subtitle}</p>}
-                    </div>
-                  </div>
-                  <CardContent className="p-6">
-                    <p className="text-sm text-foreground/80">{p.description}</p>
-                    <Button asChild variant={joined ? "outline" : "gradient"} className="mt-4 w-full">
-                      <Link href={`/programs/${p.slug}`}>
-                        {joined ? "Continue program" : "Start program"} <ArrowRight className="ml-1 size-4" />
-                      </Link>
-                    </Button>
-                  </CardContent>
-                </Card>
-              );
-            })}
+          <h2 className="mb-3 font-display text-2xl font-bold">Programs</h2>
+          <div className="grid gap-3 md:grid-cols-2">
+            {activePrograms.map((p) => (
+              <ProgramCard key={p.id} program={p} progress={myPrograms.get(p.id) ?? null} />
+            ))}
           </div>
         </div>
       )}

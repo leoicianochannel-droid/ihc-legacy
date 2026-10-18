@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
+import { workoutHref } from "@/lib/workout-context";
 import { auth } from "@clerk/nextjs/server";
 import {
   db,
@@ -659,7 +660,8 @@ export default async function ChallengeDetail({
                       return (
                         <div
                           key={d.id}
-                          className={`relative overflow-hidden rounded-2xl border bg-card transition-all ${
+                          id={`day-${d.dayNumber}`}
+                          className={`relative scroll-mt-20 overflow-hidden rounded-2xl border bg-card transition-all ${
                             done ? "border-primary/40 ring-2 ring-primary/20" : ""
                           }`}
                         >
@@ -697,7 +699,7 @@ export default async function ChallengeDetail({
                             <div className="mt-3 space-y-2">
                               {w?.slug && (
                                 <Button asChild size="sm" variant="gradient" className="w-full">
-                                  <Link href={`/workouts/${w.slug}`}>
+                                  <Link href={workoutHref(w.slug, { kind: "challenge", slug, day: d.dayNumber })}>
                                     <PlayCircle /> Watch {workoutLabel}
                                   </Link>
                                 </Button>
@@ -711,7 +713,7 @@ export default async function ChallengeDetail({
                               )}
                               {done && (
                                 <p className="text-center text-xs font-semibold text-primary">
-                                  ✓ Workout complete — keep going!
+                                  ✓ Workout complete. Keep going!
                                 </p>
                               )}
                             </div>
@@ -741,7 +743,8 @@ export default async function ChallengeDetail({
                 return (
                   <div
                     key={d.id}
-                    className={`relative overflow-hidden rounded-2xl border bg-card transition-all ${
+                    id={`day-${d.dayNumber}`}
+                    className={`relative scroll-mt-20 overflow-hidden rounded-2xl border bg-card transition-all ${
                       done ? "border-primary/40 ring-2 ring-primary/20" : ""
                     } ${locked ? "opacity-60" : ""}`}
                   >
@@ -795,7 +798,7 @@ export default async function ChallengeDetail({
                       <div className="mt-3 space-y-2">
                         {!locked && w?.slug && (
                           <Button asChild size="sm" variant="gradient" className="w-full">
-                            <Link href={`/workouts/${w.slug}`}>
+                            <Link href={workoutHref(w.slug, { kind: "challenge", slug, day: d.dayNumber })}>
                               <PlayCircle /> Watch {Unit} {d.dayNumber}
                             </Link>
                           </Button>
@@ -809,7 +812,7 @@ export default async function ChallengeDetail({
                         )}
                         {done && (
                           <p className="text-center text-xs font-semibold text-primary">
-                            ✓ {Unit} complete — keep going!
+                            ✓ {Unit} complete. Keep going!
                           </p>
                         )}
                         {locked && (

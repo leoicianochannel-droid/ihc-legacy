@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type React from "react";
-import { Check, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { markWorkoutComplete } from "./actions";
+import type { WorkoutContext } from "@/lib/workout-context";
+import { CompletionBar, useWorkoutCompletion } from "./completion";
 
 /**
  * Cloudflare Stream-powered player.
@@ -17,7 +16,8 @@ import { markWorkoutComplete } from "./actions";
  *
  * As a backstop in case the SDK fails to load (slow networks, blockers), there
  * is an always-visible "I finished this" button. So tracking can never silently
- * fail again.
+ * fail again. Saving and the "back to your challenge/program" step live in
+ * ./completion so both players behave the same.
  */
 
 declare global {
@@ -62,47 +62,22 @@ export function WorkoutPlayer({
   workoutId,
   title,
   postCompletion,
+  ctx = null,
+  backLabel = null,
 }: {
   cfStreamUid: string;
   cfCustomerCode: string | null;
   workoutId: string;
   title: string;
   postCompletion?: React.ReactNode;
+  ctx?: WorkoutContext | null;
+  backLabel?: string | null;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const reportedRef = useRef(false);
-  const [completed, setCompleted] = useState(false);
-  const [marking, setMarking] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function reportComplete() {
-    if (reportedRef.current) return;
-    reportedRef.current = true;
-    setMarking(true);
-    setError(null);
-    try {
-      const res = await markWorkoutComplete(workoutId);
-      if (res && "ok" in res && res.ok) {
-        setCompleted(true);
-      } else {
-        // Roll back so they can retry
-        reportedRef.current = false;
-        setError("Couldn't save. Tap to retry.");
-      }
-    } catch {
-      reportedRef.current = false;
-      setError("Couldn't save. Tap to retry.");
-    } finally {
-      setMarking(false);
-    }
-  }
-
-  // Reset state if workoutId changes (rare — but keeps things sane)
-  useEffect(() => {
-    reportedRef.current = false;
-    setCompleted(false);
-    setError(null);
-  }, [workoutId]);
+  const completion = useWorkoutCompletion(workoutId, ctx);
+  // The SDK listeners are attached once; keep them pointed at the latest report().
+  const reportRef = useRef(completion.report);
+  reportRef.current = completion.report;
 
   // Wire up Cloudflare Stream SDK to auto-detect 80% / ended
   useEffect(() => {
@@ -110,7 +85,7 @@ export function WorkoutPlayer({
     let cancelled = false;
 
     const onTime = () => {
-      if (!player || reportedRef.current) return;
+      if (!player) return;
       const { currentTime, duration } = player;
       if (
         typeof currentTime === "number" &&
@@ -118,10 +93,10 @@ export function WorkoutPlayer({
         duration > 0 &&
         currentTime / duration > 0.8
       ) {
-        reportComplete();
+        reportRef.current("watched80");
       }
     };
-    const onEnded = () => reportComplete();
+    const onEnded = () => reportRef.current("ended");
 
     loadStreamSdk()
       .then(() => {
@@ -162,37 +137,8 @@ export function WorkoutPlayer({
         allowFullScreen
         style={{ width: "100%", aspectRatio: "16/9", border: 0, borderRadius: 16 }}
       />
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {completed ? (
-          <Button variant="outline" size="sm" disabled>
-            <Check className="mr-1 size-4" /> Done — logged for today
-          </Button>
-        ) : (
-          <Button
-            variant="gradient"
-            size="sm"
-            onClick={reportComplete}
-            disabled={marking}
-          >
-            {marking ? (
-              <>
-                <Loader2 className="mr-1 size-4 animate-spin" /> Saving…
-              </>
-            ) : (
-              <>
-                <Check className="mr-1 size-4" /> I finished this workout
-              </>
-            )}
-          </Button>
-        )}
-        {!completed && (
-          <span className="text-xs text-muted-foreground">
-            Auto-logs at 80% watched, or tap when you finish.
-          </span>
-        )}
-        {error && <span className="text-xs text-destructive">{error}</span>}
-      </div>
-      {completed && postCompletion && postCompletion}
+      <CompletionBar state={completion} backLabel={backLabel} />
+      {completion.completed && postCompletion}
     </div>
   );
 }

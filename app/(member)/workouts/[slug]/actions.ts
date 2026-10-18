@@ -10,13 +10,33 @@ import {
   challengeMembers,
   challengeCheckins,
   challenges,
+  activityLog,
+  programs,
+  programDays,
+  programDayExercises,
+  programMembers,
 } from "@/lib/db";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, asc, inArray, isNull, sql } from "drizzle-orm";
+import { checkInChallengeDay } from "@/lib/challenge-checkin";
+import { completeProgramDay } from "@/lib/program-progress";
+import { contextHref, type WorkoutContext } from "@/lib/workout-context";
 import { logActivity } from "@/lib/streak";
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 
-export async function markWorkoutComplete(workoutId: string) {
+export type WorkoutCompleteResult =
+  | { ok: true; streak: Awaited<ReturnType<typeof logActivity>>; returnTo: string | null; message: string | null }
+  | { error: string };
+
+/**
+ * Log a finished workout. When it was opened from a challenge or program day
+ * (ctx), that exact day is ticked off and `returnTo` sends the member back to
+ * it. Without ctx, any challenge the member is in that uses this video gets
+ * its next unchecked day ticked off.
+ */
+export async function markWorkoutComplete(
+  workoutId: string,
+  ctx?: WorkoutContext | null,
+): Promise<WorkoutCompleteResult> {
   const { userId: clerkId } = await auth();
   if (!clerkId) return { error: "not_authenticated" };
 
@@ -27,151 +47,168 @@ export async function markWorkoutComplete(workoutId: string) {
     .limit(1);
   if (!u) return { error: "no_user" };
 
-  const streak = await logActivity({
-    userId: u.id,
-    type: "workout_completed",
-    referenceId: workoutId,
-    timezone: u.timezone ?? undefined,
-  });
-
-  revalidatePath("/dashboard");
-
-  // If this workout is linked to a challenge day, auto-log the challenge check-in
-  // so members don't have to click two separate "done" buttons.
-  const [linkedDay] = await db
-    .select({
-      id: challengeDays.id,
-      dayNumber: challengeDays.dayNumber,
-      challengeId: challengeDays.challengeId,
-      workoutId: challengeDays.workoutId,
-    })
-    .from(challengeDays)
-    .where(eq(challengeDays.workoutId, workoutId))
-    .limit(1);
-
-  if (linkedDay) {
-    // Find all challenge days for this challenge (needed for week-grouped detection)
-    const allCDays = await db
-      .select({ dayNumber: challengeDays.dayNumber, workoutId: challengeDays.workoutId })
-      .from(challengeDays)
-      .where(eq(challengeDays.challengeId, linkedDay.challengeId));
-
-    const uniqueWids = new Set(allCDays.map(d => d.workoutId).filter(Boolean));
-    const isWeekGrouped =
-      uniqueWids.size > 0 &&
-      uniqueWids.size < allCDays.length &&
-      allCDays.length > 6;
-
-    // For week-grouped challenges, use the representative day (first occurrence in the week)
-    // so the dupe check and sibling logic align with the challenge page.
-    let dayNumber = linkedDay.dayNumber;
-    if (isWeekGrouped && linkedDay.workoutId) {
-      const weekStart = Math.floor((linkedDay.dayNumber - 1) / 7) * 7 + 1;
-      const weekEnd = weekStart + 6;
-      const firstInWeek = allCDays
-        .filter(
-          d => d.workoutId === linkedDay.workoutId &&
-               d.dayNumber >= weekStart && d.dayNumber <= weekEnd
-        )
-        .sort((a, b) => a.dayNumber - b.dayNumber)[0];
-      if (firstInWeek) dayNumber = firstInWeek.dayNumber;
-    }
-
-    const [mem] = await db
-      .select()
-      .from(challengeMembers)
-      .where(
-        and(
-          eq(challengeMembers.challengeId, linkedDay.challengeId),
-          eq(challengeMembers.userId, u.id)
-        )
-      )
+  // ── Program day: resolve before logging so the log records which day ──
+  let programCtx: {
+    mem: typeof programMembers.$inferSelect;
+    slug: string;
+    dayNumber: number;
+    dayWorkoutIds: string[];
+    allVideo: boolean;
+  } | null = null;
+  if (ctx?.kind === "program") {
+    const [row] = await db
+      .select({ program: programs, mem: programMembers, day: programDays })
+      .from(programs)
+      .innerJoin(programMembers, and(eq(programMembers.programId, programs.id), eq(programMembers.userId, u.id)))
+      .innerJoin(programDays, and(eq(programDays.programId, programs.id), eq(programDays.dayNumber, ctx.day)))
+      .where(eq(programs.slug, ctx.slug))
       .limit(1);
-
-    if (mem && !mem.completedAt) {
-      const [dupe] = await db
-        .select({ id: challengeCheckins.id })
-        .from(challengeCheckins)
-        .where(
-          and(
-            eq(challengeCheckins.challengeMemberId, mem.id),
-            eq(challengeCheckins.dayNumber, dayNumber)
-          )
-        )
-        .limit(1);
-
-      if (!dupe) {
-        await db.insert(challengeCheckins).values({
-          challengeMemberId: mem.id,
-          dayNumber,
-        });
-
-        // For week-grouped challenges, also insert sibling days (same week, same workout)
-        if (isWeekGrouped && linkedDay.workoutId) {
-          const weekStart = Math.floor((dayNumber - 1) / 7) * 7 + 1;
-          const weekEnd = weekStart + 6;
-          const siblings = allCDays.filter(
-            d => d.dayNumber !== dayNumber &&
-                 d.dayNumber >= weekStart && d.dayNumber <= weekEnd &&
-                 d.workoutId === linkedDay.workoutId
-          );
-          for (const sib of siblings) {
-            await db.execute(sql`
-              INSERT INTO challenge_checkins (challenge_member_id, day_number)
-              SELECT ${mem.id}, ${sib.dayNumber}
-              WHERE NOT EXISTS (
-                SELECT 1 FROM challenge_checkins
-                WHERE challenge_member_id = ${mem.id} AND day_number = ${sib.dayNumber}
-              )
-            `);
-          }
-        }
-
-        const [challenge] = await db
-          .select({ slug: challenges.slug, durationDays: challenges.durationDays })
-          .from(challenges)
-          .where(eq(challenges.id, linkedDay.challengeId))
-          .limit(1);
-
-        // Calculate totalUnits the same way the challenge page does
-        let totalUnits: number;
-        if (isWeekGrouped) {
-          const seen = new Set<string>();
-          for (const d of allCDays) {
-            if (!d.workoutId) continue;
-            const weekIdx = Math.floor((d.dayNumber - 1) / 7);
-            seen.add(`${weekIdx}:${d.workoutId}`);
-          }
-          totalUnits = seen.size;
-        } else {
-          totalUnits =
-            allCDays.length || (challenge?.durationDays ?? mem.currentDay + 1);
-        }
-
-        const proposedNext = mem.currentDay + 1;
-        const isComplete = proposedNext > totalUnits;
-        const nextCurrentDay = isComplete ? totalUnits : proposedNext;
-
-        await db
-          .update(challengeMembers)
-          .set({
-            currentDay: nextCurrentDay,
-            completedAt: isComplete && !mem.completedAt ? new Date() : mem.completedAt,
-          })
-          .where(eq(challengeMembers.id, mem.id));
-
-        revalidatePath(`/challenges`);
-        if (challenge?.slug) revalidatePath(`/challenges/${challenge.slug}`);
-        revalidatePath("/dashboard");
-
-        if (isComplete && challenge?.slug) {
-          redirect(`/challenges/${challenge.slug}/complete`);
-        }
+    if (row) {
+      const exercises = await db
+        .select({ workoutId: programDayExercises.workoutId })
+        .from(programDayExercises)
+        .where(eq(programDayExercises.programDayId, row.day.id));
+      const ids = exercises.map((e) => e.workoutId).filter((id): id is string => !!id);
+      if (ids.includes(workoutId)) {
+        programCtx = {
+          mem: row.mem,
+          slug: row.program.slug,
+          dayNumber: ctx.day,
+          dayWorkoutIds: [...new Set(ids)],
+          allVideo: exercises.length > 0 && exercises.every((e) => !!e.workoutId),
+        };
       }
     }
   }
 
-  return { ok: true, streak };
+  const streak = await logActivity({
+    userId: u.id,
+    type: "workout_completed",
+    referenceId: workoutId,
+    meta: programCtx ? { programMemberId: programCtx.mem.id, programDay: programCtx.dayNumber } : undefined,
+    timezone: u.timezone ?? undefined,
+  });
+  revalidatePath("/dashboard");
+
+  if (programCtx) {
+    const { mem, slug, dayNumber, dayWorkoutIds, allVideo } = programCtx;
+    // Which of this day's videos has the member finished for this program day?
+    const doneRows = await db
+      .select({ ref: activityLog.referenceId })
+      .from(activityLog)
+      .where(
+        and(
+          eq(activityLog.userId, u.id),
+          eq(activityLog.type, "workout_completed"),
+          inArray(activityLog.referenceId, dayWorkoutIds),
+          sql`${activityLog.meta}->>'programMemberId' = ${mem.id}`,
+          sql`(${activityLog.meta}->>'programDay')::int = ${dayNumber}`,
+        ),
+      );
+    const doneIds = new Set(doneRows.map((r) => r.ref));
+    const remaining = dayWorkoutIds.filter((id) => !doneIds.has(id)).length;
+
+    let message: string;
+    if (remaining === 0 && allVideo) {
+      const res = await completeProgramDay(u, mem, dayNumber);
+      message = res.finishedProgram ? "Program complete!" : `Day ${dayNumber} complete`;
+    } else if (remaining === 0) {
+      message = "All videos done. Tick off the day when you finish.";
+    } else {
+      message = `Nice. ${remaining} more to go today`;
+    }
+    revalidatePath(`/programs/${slug}`);
+    return {
+      ok: true,
+      streak,
+      returnTo: `/programs/${slug}?day=${dayNumber}#day-${dayNumber}`,
+      message,
+    };
+  }
+
+  // ── Challenge day ──
+  const target = await findChallengeDay(u.id, workoutId, ctx?.kind === "challenge" ? ctx : null);
+  if (target) {
+    const result = await checkInChallengeDay(u, target.mem, target.dayNumber);
+    revalidatePath("/challenges");
+    revalidatePath(`/challenges/${target.slug}`);
+    if (result.finishedSlug) {
+      return { ok: true, streak, returnTo: `/challenges/${result.finishedSlug}/complete`, message: "Challenge complete!" };
+    }
+    if (ctx?.kind === "challenge") {
+      return {
+        ok: true,
+        streak,
+        returnTo: `/challenges/${target.slug}?day=${target.dayNumber}#day-${target.dayNumber}`,
+        message: result.checkedIn ? `${target.label} ${target.dayNumber} checked off` : null,
+      };
+    }
+  }
+
+  if (ctx) {
+    // Opened from a day we couldn't tick off (not joined yet, or the day
+    // moved). Still take them back where they came from.
+    return { ok: true, streak, returnTo: contextHref(ctx), message: null };
+  }
+  return { ok: true, streak, returnTo: null, message: null };
+}
+
+/**
+ * The challenge day this finished workout should tick off: the day the
+ * member came from (ctx), or else their earliest unchecked day (up to the
+ * day they're on) that uses this video in a challenge they've joined.
+ */
+async function findChallengeDay(
+  userId: string,
+  workoutId: string,
+  ctx: WorkoutContext | null,
+): Promise<{ mem: typeof challengeMembers.$inferSelect; slug: string; dayNumber: number; label: string } | null> {
+  const rows = await db
+    .select({
+      mem: challengeMembers,
+      slug: challenges.slug,
+      durationDays: challenges.durationDays,
+      dayNumber: challengeDays.dayNumber,
+      challengeId: challenges.id,
+    })
+    .from(challengeDays)
+    .innerJoin(challenges, eq(challenges.id, challengeDays.challengeId))
+    .innerJoin(
+      challengeMembers,
+      and(eq(challengeMembers.challengeId, challenges.id), eq(challengeMembers.userId, userId)),
+    )
+    .where(
+      and(
+        eq(challengeDays.workoutId, workoutId),
+        isNull(challengeMembers.completedAt),
+        ctx ? and(eq(challenges.slug, ctx.slug), eq(challengeDays.dayNumber, ctx.day)) : undefined,
+      ),
+    )
+    .orderBy(asc(challengeDays.dayNumber));
+  if (rows.length === 0) return null;
+
+  let pick = rows[0];
+  if (!ctx) {
+    const done = await db
+      .select({ memberId: challengeCheckins.challengeMemberId, day: challengeCheckins.dayNumber })
+      .from(challengeCheckins)
+      .where(inArray(challengeCheckins.challengeMemberId, [...new Set(rows.map((r) => r.mem.id))]));
+    const doneSet = new Set(done.map((d) => `${d.memberId}:${d.day}`));
+    // Only catch up on the current or an earlier day. Never jump ahead into
+    // a future day/week just because the same video appears there.
+    const open = rows.find(
+      (r) => !doneSet.has(`${r.mem.id}:${r.dayNumber}`) && r.dayNumber <= r.mem.currentDay,
+    );
+    if (!open) return null;
+    pick = open;
+  }
+
+  const [{ n }] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(challengeDays)
+    .where(eq(challengeDays.challengeId, pick.challengeId));
+  const label = Number(n) === pick.durationDays ? "Day" : "Week";
+  return { mem: pick.mem, slug: pick.slug, dayNumber: pick.dayNumber, label };
 }
 
 export async function rateWorkout(

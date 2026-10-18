@@ -1,16 +1,10 @@
 "use server";
 
 import { auth } from "@clerk/nextjs/server";
-import {
-  db,
-  users,
-  programMembers,
-  programDayCompletions,
-  programs,
-} from "@/lib/db";
+import { db, users, programMembers } from "@/lib/db";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { logActivity } from "@/lib/streak";
+import { completeProgramDay } from "@/lib/program-progress";
 
 export async function joinProgram(programId: string) {
   const { userId: clerkId } = await auth();
@@ -45,48 +39,8 @@ export async function markProgramDayComplete(memberId: string, dayNumber: number
     .limit(1);
   if (!mem || mem.userId !== me.id) return;
 
-  // Don't double-log
-  const [dupe] = await db
-    .select()
-    .from(programDayCompletions)
-    .where(
-      and(
-        eq(programDayCompletions.programMemberId, memberId),
-        eq(programDayCompletions.dayNumber, dayNumber)
-      )
-    )
-    .limit(1);
-  if (dupe) return;
+  await completeProgramDay(me, mem, dayNumber);
 
-  await db
-    .insert(programDayCompletions)
-    .values({ programMemberId: memberId, dayNumber });
-
-  // Advance currentDay if completing today's day
-  const [program] = await db
-    .select()
-    .from(programs)
-    .where(eq(programs.id, mem.programId))
-    .limit(1);
-
-  const nextDay = Math.min(mem.currentDay + 1, program?.durationDays ?? mem.currentDay + 1);
-  await db
-    .update(programMembers)
-    .set({
-      currentDay: nextDay,
-      completedAt:
-        nextDay > (program?.durationDays ?? Infinity) ? new Date() : null,
-    })
-    .where(eq(programMembers.id, memberId));
-
-  await logActivity({
-    userId: me.id,
-    type: "challenge_day_completed",
-    referenceId: mem.programId,
-    meta: { dayNumber, kind: "program" },
-    timezone: me.timezone ?? undefined,
-  });
-
-  revalidatePath(`/programs`);
+  revalidatePath(`/programs`, "layout");
   revalidatePath("/dashboard");
 }

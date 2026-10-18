@@ -2,7 +2,8 @@ import type React from "react";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
-import { db, workouts, users, workoutRatings, workoutComments, activityLog, challenges } from "@/lib/db";
+import { db, workouts, users, workoutRatings, workoutComments, activityLog, challenges, programs } from "@/lib/db";
+import { contextHref, parseWorkoutContext } from "@/lib/workout-context";
 import { eq, and, asc, inArray } from "drizzle-orm";
 import { WORKOUT_COMPLETIONS } from "@/lib/workout-completions";
 import { CHALLENGE_REWARDS } from "@/lib/challenge-rewards";
@@ -21,10 +22,13 @@ import { WorkoutComments } from "./workout-comments";
 
 export default async function WorkoutDetail({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ challenge?: string; program?: string; day?: string }>;
 }) {
   const { slug } = await params;
+  const ctx = parseWorkoutContext(await searchParams);
   const [w] = await db.select().from(workouts).where(eq(workouts.slug, slug)).limit(1);
   if (!w) notFound();
 
@@ -87,6 +91,16 @@ export default async function WorkoutDetail({
     }
   }
 
+  // Where "back" goes: the challenge/program day this was opened from.
+  let back = { href: "/workouts", label: "All workouts", short: null as string | null };
+  if (ctx) {
+    const [src] =
+      ctx.kind === "challenge"
+        ? await db.select({ title: challenges.title }).from(challenges).where(eq(challenges.slug, ctx.slug)).limit(1)
+        : await db.select({ title: programs.title }).from(programs).where(eq(programs.slug, ctx.slug)).limit(1);
+    if (src) back = { href: contextHref(ctx), label: `${src.title} · Day ${ctx.day}`, short: `Day ${ctx.day}` };
+  }
+
   // Lock gate — grandfather anyone who's previously done this workout
   const unlockDay = getEffectiveUnlockDay(w);
   const isLocked = unlockDay !== null && memberDays < unlockDay && !hasCompleted;
@@ -96,7 +110,7 @@ export default async function WorkoutDetail({
       <div className="mx-auto max-w-xl px-4 py-16 text-center">
         <div className="mb-6 flex justify-start">
           <Button asChild variant="ghost" size="sm">
-            <Link href="/workouts"><ChevronLeft /> All workouts</Link>
+            <Link href={back.href}><ChevronLeft /> {back.label}</Link>
           </Button>
         </div>
         <div className="mx-auto flex size-20 items-center justify-center rounded-full bg-muted">
@@ -107,7 +121,7 @@ export default async function WorkoutDetail({
           This workout unlocks on Day {unlockDay}.
         </p>
         <p className="mt-1 text-sm text-muted-foreground">
-          You're on Day {memberDays} —{" "}
+          You're on Day {memberDays}.{" "}
           {daysLeft === 1 ? "just 1 more day!" : `${daysLeft} more days to go.`}
         </p>
         <div className="mt-6 h-2 w-full overflow-hidden rounded-full bg-muted">
@@ -190,7 +204,7 @@ export default async function WorkoutDetail({
 
       <div className="mb-4 flex items-center justify-between gap-2">
         <Button asChild variant="ghost" size="sm">
-          <Link href="/workouts"><ChevronLeft /> All workouts</Link>
+          <Link href={back.href}><ChevronLeft /> {back.label}</Link>
         </Button>
         <LivePill variant="compact" />
       </div>
@@ -203,16 +217,20 @@ export default async function WorkoutDetail({
             workoutId={w.id}
             title={w.title}
             postCompletion={postCompletion}
+            ctx={ctx}
+            backLabel={back.short}
           />
         ) : w.muxPlaybackId ? (
           <MuxWorkoutPlayer
             playbackId={w.muxPlaybackId}
             workoutId={w.id}
             title={w.title}
+            ctx={ctx}
+            backLabel={back.short}
           />
         ) : (
           <div className="flex aspect-video items-center justify-center text-center text-white/70 px-6">
-            This video will be available very soon — check back in a few hours!
+            This video is almost ready. Check back in a few hours.
           </div>
         )}
       </div>

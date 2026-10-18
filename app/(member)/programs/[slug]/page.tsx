@@ -10,21 +10,26 @@ import {
   programMembers,
   programDayCompletions,
   workouts,
+  activityLog,
 } from "@/lib/db";
-import { eq, and, asc, inArray } from "drizzle-orm";
+import { eq, and, asc, inArray, sql } from "drizzle-orm";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
-import { ChevronLeft, Lock, Check, PlayCircle, Coffee } from "lucide-react";
+import { ChevronLeft, PartyPopper } from "lucide-react";
+import { noDashes } from "@/lib/utils";
 import { ProgramDayCard } from "./program-day-card";
 import { joinProgram } from "./actions";
 
+export const dynamic = "force-dynamic";
+
 export default async function ProgramDetail({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ day?: string }>;
 }) {
   const { slug } = await params;
+  const openDay = Number((await searchParams).day) || null;
   const { userId: clerkId } = await auth();
 
   const [program] = await db.select().from(programs).where(eq(programs.slug, slug)).limit(1);
@@ -82,77 +87,110 @@ export default async function ProgramDetail({
     : [];
   const completedDays = new Set(completed.map((c) => c.dayNumber));
   const currentDay = membership?.currentDay ?? 1;
+  const total = days.length || program.durationDays;
+  const finished = !!membership?.completedAt || (total > 0 && completedDays.size >= total);
+
+  // Which exercise videos the member has finished, per program day.
+  const watched = membership
+    ? await db
+        .select({ ref: activityLog.referenceId, day: sql<number>`(${activityLog.meta}->>'programDay')::int` })
+        .from(activityLog)
+        .where(
+          and(
+            eq(activityLog.userId, membership.userId),
+            eq(activityLog.type, "workout_completed"),
+            sql`${activityLog.meta}->>'programMemberId' = ${membership.id}`,
+          ),
+        )
+    : [];
+  const watchedSet = new Set(watched.map((w) => `${w.day}:${w.ref}`));
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-6 md:px-10 md:py-8">
-      <Button asChild variant="ghost" size="sm" className="mb-4">
-        <Link href="/programs"><ChevronLeft /> All programs</Link>
+    <div className="mx-auto max-w-2xl px-4 py-6 md:px-10 md:py-8">
+      <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
+        <Link href="/challenges"><ChevronLeft /> Challenges</Link>
       </Button>
 
-      <div className="overflow-hidden rounded-2xl hoop-gradient-bold">
-        <div className="relative p-8 text-white md:p-12">
-          <Badge variant="gold">{program.durationDays}-day program</Badge>
-          <h1 className="mt-3 font-display text-4xl font-bold md:text-5xl">{program.title}</h1>
-          {program.subtitle && <p className="mt-1 opacity-90">{program.subtitle}</p>}
-          {program.description && (
-            <p className="mt-4 max-w-3xl opacity-90">{program.description}</p>
-          )}
-        </div>
-      </div>
+      {/* Header */}
+      <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+        {program.durationDays} day program
+      </p>
+      <h1 className="mt-1 font-display text-3xl font-bold leading-tight">{program.title}</h1>
+      {program.subtitle && <p className="mt-0.5 text-muted-foreground">{program.subtitle}</p>}
+      {program.description && (
+        <p className="mt-3 text-sm leading-relaxed text-foreground/80">{noDashes(program.description)}</p>
+      )}
 
       {!membership ? (
-        <div className="mt-6 rounded-2xl border bg-card p-6 text-center">
-          <h2 className="font-display text-xl font-bold">Ready to start?</h2>
+        <div className="mt-5 rounded-2xl border bg-card p-5 text-center">
+          <p className="font-semibold">Ready when you are</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Day 1 unlocks instantly. New days unlock as you complete them.
+            Day 1 opens right away. Each new day opens when you finish the one before.
           </p>
           <form action={joinProgram.bind(null, program.id)} className="mt-4">
-            <Button variant="gradient" size="lg" type="submit">
+            <Button variant="gradient" size="lg" type="submit" className="w-full">
               Start Day 1
             </Button>
           </form>
         </div>
-      ) : (
-        <div className="mt-6 rounded-2xl border bg-card p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Your progress
-              </div>
-              <div className="font-display text-2xl font-bold">
-                Day {currentDay} of {days.length}
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Completed
-              </div>
-              <div className="font-display text-2xl font-bold">{completedDays.size}</div>
-            </div>
+      ) : finished ? (
+        <div className="mt-5 flex items-center gap-3 rounded-2xl border bg-card p-4">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+            <PartyPopper className="size-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold">Program complete</p>
+            <p className="text-sm text-muted-foreground">All {total} days done. Time to pick up the hoop.</p>
           </div>
-          <Progress value={(completedDays.size / Math.max(days.length, 1)) * 100} className="mt-3" />
+        </div>
+      ) : (
+        <div className="mt-5 rounded-2xl border bg-card p-4">
+          <div className="flex items-baseline justify-between">
+            <p className="font-semibold">
+              Day {currentDay} <span className="font-normal text-muted-foreground">of {total}</span>
+            </p>
+            <p className="text-sm text-muted-foreground">{completedDays.size} done</p>
+          </div>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-primary"
+              style={{ width: `${Math.round((completedDays.size / Math.max(total, 1)) * 100)}%` }}
+            />
+          </div>
         </div>
       )}
 
-      <div className="mt-6 space-y-3">
+      <div className="mt-6 space-y-2">
         {days.map((d) => {
           const exercises = exercisesByDay.get(d.id) ?? [];
           const locked = program.unlockAll ? false : membership ? d.dayNumber > currentDay : d.dayNumber > 1;
           const done = completedDays.has(d.dayNumber);
+          const isToday = !!membership && !finished && d.dayNumber === currentDay;
 
           return (
             <ProgramDayCard
-              key={d.id}
-              day={d}
-              exercises={exercises.map((e) => ({
-                id: e.id,
-                label: e.label,
-                repsLabel: e.repsLabel,
-                workout: e.workoutId ? workoutById.get(e.workoutId) ?? null : null,
-              }))}
+              // Re-mount as progress changes so the right day opens itself.
+              key={`${d.id}-${membership ? currentDay : 0}-${completedDays.size}`}
+              programSlug={program.slug}
+              day={{ ...d, title: noDashes(d.title), description: d.description ? noDashes(d.description) : null }}
+              exercises={exercises.map((e) => {
+                const w = e.workoutId ? workoutById.get(e.workoutId) ?? null : null;
+                return {
+                  id: e.id,
+                  label: e.label,
+                  repsLabel: e.repsLabel,
+                  workout: w ? { slug: w.slug, title: w.title } : null,
+                  done: done || (!!e.workoutId && watchedSet.has(`${d.dayNumber}:${e.workoutId}`)),
+                };
+              })}
               locked={locked}
               done={done}
-              isToday={d.dayNumber === currentDay}
+              isToday={isToday}
+              defaultOpen={
+                // Coming back from a video: reopen that day, unless it just
+                // got finished, in which case today's (next) day opens.
+                openDay && !completedDays.has(openDay) ? d.dayNumber === openDay : isToday
+              }
               membershipId={membership?.id ?? null}
             />
           );
