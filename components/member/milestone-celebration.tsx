@@ -33,7 +33,7 @@ export function MilestoneCelebration({ data }: { data: CelebrationData }) {
           <div className="text-5xl">🎉</div>
           <h2 className="mt-3 font-display text-2xl font-bold">You've reached Day {data.day}!</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Keep it up — here's what just unlocked for you.
+            Keep it up. Here's what you just unlocked.
           </p>
         </div>
 

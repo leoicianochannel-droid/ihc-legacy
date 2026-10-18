@@ -44,8 +44,8 @@ export function ClaimForm({
           <h3 className="font-display text-xl font-bold">You&apos;re all set!</h3>
           <p className="mt-1 text-sm text-muted-foreground">
             {milestone.requiresShipping
-              ? "We'll ship your gift within 3–5 business days. Check your email for tracking."
-              : "Your free month has been noted — we'll apply it to your next billing cycle."}
+              ? "Your gift ships in 3 to 5 business days. Tracking is on its way to your inbox."
+              : "Done. Your free month is applied to your next bill."}
           </p>
         </div>
         <Button onClick={onClose} variant="outline">Close</Button>
@@ -106,7 +106,7 @@ export function ClaimForm({
         </>
       ) : (
         <div className="rounded-2xl border bg-muted/30 p-4 text-sm text-muted-foreground">
-          <Sparkles className="mb-1 inline size-4 text-primary" /> No shipping needed — we&apos;ll apply your free month to your next billing cycle automatically.
+          <Sparkles className="mb-1 inline size-4 text-primary" /> No shipping needed. Your free month is applied to your next bill automatically.
         </div>
       )}
 

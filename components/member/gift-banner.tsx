@@ -23,7 +23,7 @@ export function GiftBanner({ status }: { status: GiftStatus }) {
               Your free {gift.label} is on its way!
             </span>
             <span className="ml-2 text-xs text-amber-700 opacity-80">
-              Day {gift.dayThreshold} reached — shipping automatically.
+              Day {gift.dayThreshold} reached. Your gift ships automatically.
             </span>
           </div>
           <button
