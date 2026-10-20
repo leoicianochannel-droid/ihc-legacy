@@ -7,7 +7,7 @@
  * - WeeklyConsistencyBars: 12-week bar chart of workouts completed per week
  * - ActivityHeatmap: 90-day grid coloured by workout activity
  */
-import type { WeightPoint, WeeklyBar, DayCell } from "@/lib/insights";
+import type { WeightPoint, MeasurementPoint, WeeklyBar, DayCell } from "@/lib/insights";
 
 // ── WeightSparkline ───────────────────────────────────────────────
 export function WeightSparkline({ points }: { points: WeightPoint[] }) {
@@ -84,6 +84,77 @@ export function WeightSparkline({ points }: { points: WeightPoint[] }) {
       {/* Endpoint dots */}
       <circle cx={x(0)} cy={y(first)} r={4} fill="hsl(0 0% 100%)" stroke="hsl(337 97% 42%)" strokeWidth={2} />
       <circle cx={x(points.length - 1)} cy={y(latest)} r={5} fill="hsl(337 97% 42%)" />
+    </svg>
+  );
+}
+
+// ── MeasurementSparkline ──────────────────────────────────────────
+// Shows waist (primary) and optionally hips (secondary) over time.
+export function MeasurementSparkline({ points }: { points: MeasurementPoint[] }) {
+  const waistPoints = points.filter((p): p is MeasurementPoint & { waist: number } => p.waist != null);
+  const hipsPoints = points.filter((p): p is MeasurementPoint & { hips: number } => p.hips != null);
+  if (waistPoints.length < 2) return null;
+
+  const W = 600;
+  const H = 180;
+  const PAD_X = 28;
+  const PAD_Y = 24;
+
+  // Compute combined domain so both lines share the same scale
+  const allVals = [
+    ...waistPoints.map((p) => p.waist),
+    ...hipsPoints.map((p) => p.hips),
+  ];
+  const min = Math.min(...allVals);
+  const max = Math.max(...allVals);
+  const range = Math.max(max - min, 1);
+
+  const xFor = (i: number, total: number) =>
+    PAD_X + (i / (total - 1)) * (W - 2 * PAD_X);
+  const yFor = (v: number) =>
+    H - PAD_Y - ((v - min) / range) * (H - 2 * PAD_Y);
+
+  const waistPath = waistPoints
+    .map((p, i) => `${i === 0 ? "M" : "L"} ${xFor(i, waistPoints.length).toFixed(1)} ${yFor(p.waist).toFixed(1)}`)
+    .join(" ");
+  const waistArea = `${waistPath} L ${xFor(waistPoints.length - 1, waistPoints.length).toFixed(1)} ${H - PAD_Y} L ${xFor(0, waistPoints.length).toFixed(1)} ${H - PAD_Y} Z`;
+
+  const hipsPath = hipsPoints.length >= 2
+    ? hipsPoints.map((p, i) => `${i === 0 ? "M" : "L"} ${xFor(i, hipsPoints.length).toFixed(1)} ${yFor(p.hips).toFixed(1)}`).join(" ")
+    : null;
+
+  const waistFirst = waistPoints[0].waist;
+  const waistLatest = waistPoints[waistPoints.length - 1].waist;
+
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      role="img"
+      aria-label="Measurements over time"
+      className="h-44 w-full"
+      preserveAspectRatio="none"
+    >
+      <defs>
+        <linearGradient id="meas-grad" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor="hsl(337 97% 42%)" stopOpacity="0.20" />
+          <stop offset="100%" stopColor="hsl(337 97% 42%)" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+
+      <line x1={PAD_X} x2={W - PAD_X} y1={yFor(max)} y2={yFor(max)} stroke="hsl(0 0% 90%)" strokeDasharray="3 4" />
+      <line x1={PAD_X} x2={W - PAD_X} y1={yFor(min)} y2={yFor(min)} stroke="hsl(0 0% 90%)" strokeDasharray="3 4" />
+      <text x={4} y={yFor(max) + 4} fontSize={10} fill="hsl(0 0% 50%)">{max.toFixed(1)}"</text>
+      <text x={4} y={yFor(min) + 4} fontSize={10} fill="hsl(0 0% 50%)">{min.toFixed(1)}"</text>
+
+      <path d={waistArea} fill="url(#meas-grad)" />
+      <path d={waistPath} fill="none" stroke="hsl(337 97% 42%)" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
+
+      {hipsPath && (
+        <path d={hipsPath} fill="none" stroke="hsl(337 97% 65%)" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" strokeDasharray="5 3" />
+      )}
+
+      <circle cx={xFor(0, waistPoints.length)} cy={yFor(waistFirst)} r={4} fill="hsl(0 0% 100%)" stroke="hsl(337 97% 42%)" strokeWidth={2} />
+      <circle cx={xFor(waistPoints.length - 1, waistPoints.length)} cy={yFor(waistLatest)} r={5} fill="hsl(337 97% 42%)" />
     </svg>
   );
 }

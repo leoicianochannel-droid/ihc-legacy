@@ -7,24 +7,28 @@ import { db, progressEntries, activityLog } from "./db";
 import { and, asc, eq, gte, sql } from "drizzle-orm";
 
 export type WeightPoint = { date: string; weight: number };
+export type MeasurementPoint = { date: string; waist?: number; hips?: number; thigh?: number };
 export type WeeklyBar = { weekStart: string; count: number };
 export type DayCell = { date: string; count: number };
 
 export type ProgressInsights = {
   entryCount: number;
-  weightSeries: WeightPoint[];      // date in YYYY-MM-DD, weight in lb
+  weightSeries: WeightPoint[];
   weightDeltaLb: number;            // negative = loss
   weightFirst: number | null;
   weightLatest: number | null;
-  weeklyBars: WeeklyBar[];          // last 12 weeks of workout counts (oldest → newest)
-  heatmap: DayCell[];               // last 90 days of activity counts (oldest → newest)
+  measurementSeries: MeasurementPoint[];
+  waistDeltaIn: number;             // negative = lost inches
+  weeklyBars: WeeklyBar[];
+  heatmap: DayCell[];
   workoutsLast30: number;
-  workoutsLast30PerWeek: number;    // average workouts per week over last 30 days
+  workoutsLast30PerWeek: number;
   consistencyTier: "starting" | "building" | "consistent" | "champion";
   unlocks: {
-    trendGraph: boolean;             // 3+ progress entries
-    consistencyChart: boolean;        // 7+ days of activity in last 30
-    insightsCompare: boolean;         // both
+    trendGraph: boolean;
+    measurementChart: boolean;        // 3+ entries with waist
+    consistencyChart: boolean;
+    insightsCompare: boolean;
   };
 };
 
@@ -48,24 +52,40 @@ export async function computeProgressInsights(userId: string): Promise<ProgressI
   const ninetyDaysAgo = new Date(now.getTime() - 90 * DAY_MS);
   const thirtyDaysAgo = new Date(now.getTime() - 30 * DAY_MS);
 
-  // Pull progress entries (oldest → newest) for the trend line.
+  // Pull progress entries (oldest → newest) for trend lines.
   const entries = await db
     .select({
       entryDate: progressEntries.entryDate,
       weightLb: progressEntries.weightLb,
+      measurements: progressEntries.measurements,
     })
     .from(progressEntries)
     .where(eq(progressEntries.userId, userId))
     .orderBy(asc(progressEntries.entryDate));
 
   const weightSeries: WeightPoint[] = entries
-    .filter((e): e is { entryDate: string; weightLb: number } => e.weightLb != null)
+    .filter((e): e is { entryDate: string; weightLb: number; measurements: typeof e.measurements } => e.weightLb != null)
     .map((e) => ({ date: String(e.entryDate), weight: e.weightLb }));
 
   const weightFirst = weightSeries[0]?.weight ?? null;
   const weightLatest = weightSeries[weightSeries.length - 1]?.weight ?? null;
   const weightDeltaLb =
     weightFirst != null && weightLatest != null ? weightLatest - weightFirst : 0;
+
+  const measurementSeries: MeasurementPoint[] = entries
+    .filter((e) => e.measurements && (e.measurements.waist || e.measurements.hips || e.measurements.thigh))
+    .map((e) => ({
+      date: String(e.entryDate),
+      waist: e.measurements?.waist,
+      hips: e.measurements?.hips,
+      thigh: e.measurements?.thigh,
+    }));
+
+  const waistSeries = measurementSeries.filter((p) => p.waist != null);
+  const waistFirst = waistSeries[0]?.waist ?? null;
+  const waistLatest = waistSeries[waistSeries.length - 1]?.waist ?? null;
+  const waistDeltaIn =
+    waistFirst != null && waistLatest != null ? waistLatest - waistFirst : 0;
 
   // Workout activity by day in the last 90 days (for heatmap).
   const workoutDays = await db
@@ -126,6 +146,8 @@ export async function computeProgressInsights(userId: string): Promise<ProgressI
     weightDeltaLb,
     weightFirst,
     weightLatest,
+    measurementSeries,
+    waistDeltaIn,
     weeklyBars,
     heatmap,
     workoutsLast30,
@@ -133,6 +155,7 @@ export async function computeProgressInsights(userId: string): Promise<ProgressI
     consistencyTier,
     unlocks: {
       trendGraph: weightSeries.length >= 3,
+      measurementChart: waistSeries.length >= 3,
       consistencyChart: workoutsLast30 >= 7,
       insightsCompare: weightSeries.length >= 3 && workoutsLast30 >= 7,
     },

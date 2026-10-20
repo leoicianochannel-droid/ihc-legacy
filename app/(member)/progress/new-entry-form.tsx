@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { saveEntry } from "./actions";
 import { upload as blobUpload } from "@vercel/blob/client";
-import { Camera, X, Loader2 } from "lucide-react";
+import { Camera, X, Loader2, Ruler } from "lucide-react";
 
 function PhotoUploader({
   urls,
@@ -94,6 +94,9 @@ export function NewEntryForm() {
   const [energy, setEnergy] = useState("");
   const [note, setNote] = useState("");
   const [photoUrls, setPhotoUrls] = useState<string[]>([]);
+  const [waist, setWaist] = useState("");
+  const [hips, setHips] = useState("");
+  const [thigh, setThigh] = useState("");
   const [isPending, startTransition] = useTransition();
   const [saved, setSaved] = useState(false);
 
@@ -105,6 +108,11 @@ export function NewEntryForm() {
         energyLevel: energy ? parseInt(energy, 10) : null,
         note: note || null,
         photoUrls,
+        measurements: {
+          waist: waist ? parseFloat(waist) : undefined,
+          hips: hips ? parseFloat(hips) : undefined,
+          thigh: thigh ? parseFloat(thigh) : undefined,
+        },
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -130,6 +138,26 @@ export function NewEntryForm() {
         <div>
           <Label>Energy (1–5)</Label>
           <Input type="number" min={1} max={5} value={energy} onChange={(e) => setEnergy(e.target.value)} />
+        </div>
+        <div className="sm:col-span-3">
+          <div className="mb-2 flex items-center gap-1.5">
+            <Ruler className="size-3.5 text-muted-foreground" />
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Measurements (inches) — optional</span>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <Label className="text-xs">Waist</Label>
+              <Input type="number" step="0.5" min={10} max={80} placeholder="e.g. 32" value={waist} onChange={(e) => setWaist(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs">Hips</Label>
+              <Input type="number" step="0.5" min={10} max={80} placeholder="e.g. 40" value={hips} onChange={(e) => setHips(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs">Thigh</Label>
+              <Input type="number" step="0.5" min={5} max={50} placeholder="e.g. 24" value={thigh} onChange={(e) => setThigh(e.target.value)} />
+            </div>
+          </div>
         </div>
         <div className="sm:col-span-3">
           <Label>Note (private)</Label>

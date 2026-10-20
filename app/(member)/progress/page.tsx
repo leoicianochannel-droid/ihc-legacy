@@ -3,7 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { db, users, progressEntries, streaks, activityLog, workouts } from "@/lib/db";
 import { eq, desc, and } from "drizzle-orm";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Lock, Trophy, TrendingDown, Flame, LineChart, Sparkles, Dumbbell, Clock, ChevronRight, Camera } from "lucide-react";
+import { Lock, Trophy, TrendingDown, Flame, LineChart, Sparkles, Dumbbell, Clock, ChevronRight, Camera, Ruler } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
 import { NewEntryForm } from "./new-entry-form";
@@ -11,6 +11,7 @@ import { formatDate } from "@/lib/utils";
 import { computeProgressInsights } from "@/lib/insights";
 import {
   WeightSparkline,
+  MeasurementSparkline,
   WeeklyConsistencyBars,
   ActivityHeatmap,
 } from "@/components/progress/charts";
@@ -135,6 +136,50 @@ export default async function ProgressPage() {
                 target={3}
                 label="weight check-ins"
                 cta="Log your weight 3 times — even a week apart — and your trend graph unlocks."
+              />
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Measurement trend — unlocks at 3 waist entries */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Ruler className="size-4 text-primary" /> Measurements
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {insights.unlocks.measurementChart ? (
+              <>
+                <MeasurementSparkline points={insights.measurementSeries} />
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm">
+                  <div className="text-muted-foreground">
+                    Waist · {insights.measurementSeries.filter((p) => p.waist).length} check-ins
+                    {insights.measurementSeries.some((p) => p.hips) && " · hips shown dashed"}
+                  </div>
+                  <div
+                    className={
+                      insights.waistDeltaIn < 0
+                        ? "font-bold text-primary"
+                        : insights.waistDeltaIn > 0
+                          ? "font-semibold text-amber-700"
+                          : "font-semibold text-muted-foreground"
+                    }
+                  >
+                    {insights.waistDeltaIn < 0
+                      ? `↓ ${Math.abs(insights.waistDeltaIn).toFixed(1)}" off your waist`
+                      : insights.waistDeltaIn > 0
+                        ? `↑ ${insights.waistDeltaIn.toFixed(1)}" gained`
+                        : "Holding steady"}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <UnlockNudge
+                done={insights.measurementSeries.filter((p) => p.waist).length}
+                target={3}
+                label="waist measurements"
+                cta="Log your waist 3 times and watch your inches melt away on the chart — sometimes the tape tells the story the scale won't."
               />
             )}
           </CardContent>
@@ -358,10 +403,13 @@ export default async function ProgressPage() {
                   </div>
                   <div className="flex-1">
                     <div className="font-semibold">{formatDate(String(e.entryDate))}</div>
-                    <div className="flex gap-3 text-sm text-muted-foreground">
+                    <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">
                       {e.weightLb && <span>{e.weightLb} lb</span>}
-                      {e.mood && <span>Mood: {e.mood}/5</span>}
-                      {e.energyLevel && <span>Energy: {e.energyLevel}/5</span>}
+                      {e.measurements?.waist && <span>Waist {e.measurements.waist}"</span>}
+                      {e.measurements?.hips && <span>Hips {e.measurements.hips}"</span>}
+                      {e.measurements?.thigh && <span>Thigh {e.measurements.thigh}"</span>}
+                      {e.mood && <span>Mood {e.mood}/5</span>}
+                      {e.energyLevel && <span>Energy {e.energyLevel}/5</span>}
                     </div>
                     {e.note && <p className="mt-1 text-sm">{e.note}</p>}
                   </div>

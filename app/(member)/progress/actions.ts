@@ -13,6 +13,7 @@ export async function saveEntry(input: {
   energyLevel: number | null;
   note: string | null;
   photoUrls?: string[];
+  measurements?: { waist?: number; hips?: number; thigh?: number };
 }) {
   const { userId: clerkId } = await auth();
   if (!clerkId) throw new Error("not authenticated");
@@ -27,6 +28,11 @@ export async function saveEntry(input: {
     .where(and(eq(progressEntries.userId, me.id), eq(progressEntries.entryDate, today)))
     .limit(1);
 
+  const measurements =
+    input.measurements && Object.values(input.measurements).some((v) => v != null)
+      ? input.measurements
+      : null;
+
   if (existing) {
     await db
       .update(progressEntries)
@@ -35,6 +41,7 @@ export async function saveEntry(input: {
         mood: input.mood,
         energyLevel: input.energyLevel,
         note: input.note,
+        ...(measurements !== undefined && { measurements }),
         ...(input.photoUrls !== undefined && { photoUrls: input.photoUrls }),
       })
       .where(eq(progressEntries.id, existing.id));
@@ -46,6 +53,7 @@ export async function saveEntry(input: {
       mood: input.mood,
       energyLevel: input.energyLevel,
       note: input.note,
+      measurements,
       photoUrls: input.photoUrls ?? [],
     });
   }
