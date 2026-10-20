@@ -32,13 +32,15 @@ export async function updateReminderTime(time: string | null) {
 export async function saveProfile({ bio, location }: { bio: string; location: string }) {
   const { userId: clerkId } = await auth();
   if (!clerkId) return;
-  await db
+  const [updated] = await db
     .update(users)
     .set({
       bio: bio.trim().slice(0, 400) || null,
       location: location.trim().slice(0, 100) || null,
     })
-    .where(eq(users.clerkId, clerkId));
+    .where(eq(users.clerkId, clerkId))
+    .returning({ id: users.id });
   revalidatePath("/settings");
   revalidatePath("/community");
+  if (updated?.id) revalidatePath(`/profile/${updated.id}`);
 }

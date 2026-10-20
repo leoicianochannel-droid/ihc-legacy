@@ -110,7 +110,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
             )}
             {isOwnProfile && (
               <Button asChild size="sm" variant="outline">
-                <Link href="/settings">Edit profile</Link>
+                <Link href="/settings">Settings</Link>
               </Button>
             )}
           </div>
