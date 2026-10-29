@@ -4,13 +4,20 @@ import { useState, useTransition, useRef, useEffect } from "react";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Pin, FileText, MessageCircle, Check, X, Loader2 } from "lucide-react";
+import { Pin, FileText, MessageCircle, Check, X, Loader2, Bookmark } from "lucide-react";
 import { formatDate, cn } from "@/lib/utils";
 import { PostInteractions } from "./post-interactions";
-import { pinPost, unpinPost, editPost } from "./actions";
+import { pinPost, unpinPost, editPost, votePoll, toggleBookmark } from "./actions";
 import { PostActions } from "./post-actions";
 import { ImageLightbox } from "@/components/community/image-lightbox";
 import type { CommentRow } from "./actions";
+
+type PollOptionDisplay = {
+  id: string;
+  text: string;
+  position: number;
+  voteCount: number;
+};
 
 function extractYouTubeId(url: string): string | null {
   const m = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
@@ -83,6 +90,9 @@ type Props = {
   previewComments: CommentRow[];
   initialReactionCounts?: Record<string, number>;
   initialMyReactions?: string[];
+  pollOptions?: PollOptionDisplay[];
+  myVoteOptionId?: string | null;
+  initialBookmarked?: boolean;
 };
 
 export function PostCard({
@@ -96,6 +106,9 @@ export function PostCard({
   previewComments,
   initialReactionCounts = {},
   initialMyReactions = [],
+  pollOptions: initialPollOptions = [],
+  myVoteOptionId: initialMyVoteOptionId = null,
+  initialBookmarked = false,
 }: Props) {
   const [body, setBody] = useState(post.body);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -103,6 +116,33 @@ export function PostCard({
   const [pinned, setPinned] = useState(!!post.pinnedAt);
   const [pinPending, startPinTransition] = useTransition();
   const isOwner = !!meId && meId === post.userId;
+
+  // Poll state
+  const [pollOptions, setPollOptions] = useState(initialPollOptions);
+  const [myVoteOptionId, setMyVoteOptionId] = useState<string | null>(initialMyVoteOptionId);
+  const [votePending, startVoteTransition] = useTransition();
+
+  // Bookmark state
+  const [bookmarked, setBookmarked] = useState(initialBookmarked);
+  const [bookmarkPending, startBookmarkTransition] = useTransition();
+
+  function handleVote(optionId: string) {
+    if (!meId) return;
+    startVoteTransition(async () => {
+      const res = await votePoll(post.id, optionId);
+      setMyVoteOptionId(res.myVoteOptionId);
+      setPollOptions((opts) =>
+        opts.map((o) => ({ ...o, voteCount: res.optionVoteCounts[o.id] ?? 0 }))
+      );
+    });
+  }
+
+  function handleBookmark() {
+    startBookmarkTransition(async () => {
+      const res = await toggleBookmark(post.id);
+      setBookmarked(res.bookmarked);
+    });
+  }
 
   // Inline post editing
   const [editing, setEditing] = useState(false);
@@ -238,6 +278,24 @@ export function PostCard({
             </div>
           ) : null}
 
+          {/* Bookmark button */}
+          {meId && (
+            <button
+              type="button"
+              onClick={handleBookmark}
+              disabled={bookmarkPending}
+              title={bookmarked ? "Remove bookmark" : "Save post"}
+              className={cn(
+                "shrink-0 rounded-full p-1.5 transition-colors",
+                bookmarked
+                  ? "text-primary"
+                  : "text-muted-foreground hover:text-primary"
+              )}
+            >
+              <Bookmark className={cn("size-4", bookmarked && "fill-current")} />
+            </button>
+          )}
+
           {/* Edit/delete menu — only for post owner */}
           {isOwner && !editing && (
             <PostActions
@@ -283,6 +341,67 @@ export function PostCard({
           </div>
         ) : (
           <PostBody text={body} />
+        )}
+
+        {/* Poll */}
+        {pollOptions.length >= 2 && (
+          <div className="mt-3 space-y-2">
+            {(() => {
+              const totalVotes = pollOptions.reduce((s, o) => s + o.voteCount, 0);
+              const hasVoted = myVoteOptionId !== null;
+              return pollOptions
+                .slice()
+                .sort((a, b) => a.position - b.position)
+                .map((opt) => {
+                  const pct = totalVotes > 0 ? Math.round((opt.voteCount / totalVotes) * 100) : 0;
+                  const isMyVote = opt.id === myVoteOptionId;
+                  if (hasVoted) {
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => handleVote(opt.id)}
+                        disabled={votePending}
+                        className={cn(
+                          "relative w-full overflow-hidden rounded-xl border px-3 py-2 text-left text-sm font-medium transition-colors",
+                          isMyVote
+                            ? "border-primary text-primary"
+                            : "border-border text-foreground hover:border-primary/50"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "absolute inset-0 transition-all",
+                            isMyVote ? "bg-primary/10" : "bg-muted/50"
+                          )}
+                          style={{ width: `${pct}%` }}
+                        />
+                        <span className="relative flex items-center justify-between">
+                          <span>{opt.text}</span>
+                          <span className="ml-3 text-xs font-bold">{pct}%</span>
+                        </span>
+                      </button>
+                    );
+                  }
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => handleVote(opt.id)}
+                      disabled={votePending || !meId}
+                      className="w-full rounded-xl border px-3 py-2 text-left text-sm font-medium transition-colors hover:border-primary hover:bg-primary/5 disabled:opacity-50"
+                    >
+                      {opt.text}
+                    </button>
+                  );
+                });
+            })()}
+            <p className="text-xs text-muted-foreground">
+              {pollOptions.reduce((s, o) => s + o.voteCount, 0)} vote
+              {pollOptions.reduce((s, o) => s + o.voteCount, 0) !== 1 ? "s" : ""}
+              {myVoteOptionId !== null && " · tap to change"}
+            </p>
+          </div>
         )}
 
         {/* Attachments */}

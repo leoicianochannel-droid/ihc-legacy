@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Check, Lock, Gift, Sparkles, Truck } from "lucide-react";
 import Image from "next/image";
+import { GiftClaimButton } from "./gift-claim-button";
 
 export const dynamic = "force-dynamic";
 
@@ -71,13 +72,13 @@ export default async function GiftsPage() {
           const isClaimed = !!claim?.claimedAt;
           const isShipped = !!claim?.shippedAt;
           const daysLeft = milestone.dayThreshold - status.daysMember;
-          const isAutoSent = isUnlocked && !isClaimed;
+          const readyToClaim = isUnlocked && !isClaimed;
 
           return (
             <Card
               key={milestone.key}
               className={`relative overflow-hidden transition-all ${
-                isAutoSent
+                readyToClaim
                   ? "border-primary/50 ring-2 ring-primary/20"
                   : isClaimed
                   ? "opacity-80"
@@ -91,12 +92,12 @@ export default async function GiftsPage() {
                     className={`flex size-10 items-center justify-center rounded-full border-2 ${
                       isClaimed
                         ? "border-emerald-500 bg-emerald-500 text-white"
-                        : isAutoSent
-                        ? "border-emerald-500 bg-emerald-500 text-white"
+                        : readyToClaim
+                        ? "border-primary bg-primary text-white"
                         : "border-border bg-background"
                     }`}
                   >
-                    {isClaimed || isAutoSent ? (
+                    {isClaimed ? (
                       <Truck className="size-5" />
                     ) : isUnlocked ? (
                       <Gift className="size-5" />
@@ -120,9 +121,9 @@ export default async function GiftsPage() {
                             {isShipped ? "Shipped" : "Sent"}
                           </Badge>
                         )}
-                        {isAutoSent && (
-                          <Badge className="bg-emerald-500 text-white text-[10px]">
-                            <Truck className="mr-1 size-2.5" /> On its way!
+                        {readyToClaim && (
+                          <Badge className="bg-primary text-white text-[10px]">
+                            <Gift className="mr-1 size-2.5" /> Ready to claim!
                           </Badge>
                         )}
                       </div>
@@ -149,11 +150,8 @@ export default async function GiftsPage() {
 
                   {/* Status row */}
                   <div className="mt-3">
-                    {isAutoSent ? (
-                      <p className="text-xs text-muted-foreground">
-                        <Truck className="mr-1 inline size-3" />
-                        Automatically sent via Skio to your address on file.
-                      </p>
+                    {readyToClaim ? (
+                      <GiftClaimButton milestone={milestone} />
                     ) : isClaimed ? (
                       <p className="text-xs text-muted-foreground">
                         Sent on {new Date(claim.claimedAt!).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
@@ -184,7 +182,7 @@ export default async function GiftsPage() {
       </div>
 
       <p className="mt-8 text-center text-xs text-muted-foreground">
-        Gifts are automatically sent via Skio to your address on file once you reach each milestone. Free month is applied to your next billing cycle.
+        When you hit a milestone, click "Claim my gift" to enter your shipping address. Free month is applied to your next billing cycle.
       </p>
     </div>
   );

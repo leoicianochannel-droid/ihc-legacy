@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { db, workouts, users, activityLog } from "@/lib/db";
-import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, sql, ilike } from "drizzle-orm";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PlayCircle, Trophy, Lock, Flame, Droplets } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getEffectiveUnlockDay } from "@/lib/workout-access";
+import { WorkoutSearch } from "@/components/member/workout-search";
 
 export const dynamic = "force-dynamic";
 
@@ -24,17 +25,19 @@ async function ensureUnlocksAtDayColumn() {
 export default async function WorkoutsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ intensity?: string }>;
+  searchParams: Promise<{ intensity?: string; q?: string }>;
 }) {
   await ensureUnlocksAtDayColumn();
 
-  const { intensity: rawIntensity } = await searchParams;
+  const { intensity: rawIntensity, q: rawQ } = await searchParams;
   const activeIntensity: Intensity | null = INTENSITIES.includes(rawIntensity as Intensity)
     ? (rawIntensity as Intensity)
     : null;
+  const searchQuery = rawQ?.trim() ?? "";
 
   const filters = [eq(workouts.challengeOnly, false)];
   if (activeIntensity) filters.push(eq(workouts.intensity, activeIntensity));
+  if (searchQuery) filters.push(ilike(workouts.title, `%${searchQuery}%`));
 
   // Fetch workouts and auth in parallel
   const [list, { userId: clerkId }] = await Promise.all([
@@ -116,31 +119,41 @@ export default async function WorkoutsPage({
         </Link>
       </div>
 
-      <div className="mb-8 flex flex-wrap items-center gap-2">
-        <span className="mr-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Difficulty</span>
-        {([
-          { label: "All", href: "/workouts", value: null },
-          { label: "Beginner", href: "/workouts?intensity=beginner", value: "beginner" },
-          { label: "Intermediate", href: "/workouts?intensity=intermediate", value: "intermediate" },
-          { label: "Advanced", href: "/workouts?intensity=advanced", value: "advanced" },
-        ] as const).map((opt) => {
-          const active = opt.value === activeIntensity;
-          return (
-            <Link key={opt.label} href={opt.href}
-              className={cn(
-                "rounded-full border px-3 py-1 text-xs font-semibold transition-colors",
-                active ? "border-primary bg-primary text-primary-foreground" : "bg-background text-foreground/70 hover:bg-muted hover:text-foreground"
-              )}
-            >{opt.label}</Link>
-          );
-        })}
+      <div className="mb-8 flex flex-wrap items-center gap-3">
+        <WorkoutSearch defaultValue={searchQuery} />
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="mr-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Difficulty</span>
+          {([
+            { label: "All", href: searchQuery ? `/workouts?q=${encodeURIComponent(searchQuery)}` : "/workouts", value: null },
+            { label: "Beginner", href: `/workouts?intensity=beginner${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}`, value: "beginner" },
+            { label: "Intermediate", href: `/workouts?intensity=intermediate${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}`, value: "intermediate" },
+            { label: "Advanced", href: `/workouts?intensity=advanced${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}`, value: "advanced" },
+          ] as const).map((opt) => {
+            const active = opt.value === activeIntensity;
+            return (
+              <Link key={opt.label} href={opt.href}
+                className={cn(
+                  "rounded-full border px-3 py-1 text-xs font-semibold transition-colors",
+                  active ? "border-primary bg-primary text-primary-foreground" : "bg-background text-foreground/70 hover:bg-muted hover:text-foreground"
+                )}
+              >{opt.label}</Link>
+            );
+          })}
+        </div>
       </div>
 
       {list.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
             <PlayCircle className="mx-auto size-12 text-muted-foreground" />
-            <p className="mt-4 font-display text-xl font-bold">No workouts yet</p>
+            <p className="mt-4 font-display text-xl font-bold">
+              {searchQuery ? `No workouts matching "${searchQuery}"` : "No workouts yet"}
+            </p>
+            {searchQuery && (
+              <Link href="/workouts" className="mt-2 inline-block text-sm text-primary underline">
+                Clear search
+              </Link>
+            )}
           </CardContent>
         </Card>
       ) : (

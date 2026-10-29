@@ -30,6 +30,7 @@ import {
   PartyPopper,
   UserPlus,
   Dumbbell,
+  UtensilsCrossed,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -66,10 +67,12 @@ const NAV: NavItem[] = [
       { href: "/community", label: "Feed" },
       { href: "/community/members", label: "Members" },
       { href: "/community/buddy", label: "Accountability Buddy" },
+      { href: "/leaderboard", label: "Leaderboard" },
     ],
   },
   { href: "/messages", label: "Messages", icon: MessageCircle },
   { href: "/progress", label: "Progress", icon: LineChart },
+  { href: "/nutrition", label: "Nutrition", icon: UtensilsCrossed },
   { href: "/activity", label: "Log My Workout", icon: Dumbbell },
   {
     href: "/recipes",

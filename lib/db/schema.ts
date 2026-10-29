@@ -1050,6 +1050,109 @@ export const personalWorkouts = pgTable("personal_workouts", {
 
 export type PersonalWorkout = typeof personalWorkouts.$inferSelect;
 
+/* ──────────────────────── Polls ──────────────────────────────── */
+
+export const pollOptions = pgTable(
+  "poll_options",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    postId: uuid("post_id")
+      .notNull()
+      .references(() => posts.id, { onDelete: "cascade" }),
+    text: text("text").notNull(),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    postIdx: index("poll_options_post_idx").on(t.postId),
+  })
+);
+
+export const pollVotes = pgTable(
+  "poll_votes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    postId: uuid("post_id")
+      .notNull()
+      .references(() => posts.id, { onDelete: "cascade" }),
+    optionId: uuid("option_id")
+      .notNull()
+      .references(() => pollOptions.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    unique: uniqueIndex("poll_votes_user_post_unique").on(t.userId, t.postId),
+  })
+);
+
+export type PollOption = typeof pollOptions.$inferSelect;
+export type PollVote = typeof pollVotes.$inferSelect;
+
+/* ──────────────────────── Bookmarks ──────────────────────────── */
+
+export const postBookmarks = pgTable(
+  "post_bookmarks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    postId: uuid("post_id")
+      .notNull()
+      .references(() => posts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    unique: uniqueIndex("post_bookmarks_unique").on(t.userId, t.postId),
+    userIdx: index("post_bookmarks_user_idx").on(t.userId),
+  })
+);
+
+/* ──────────────────────── Nutrition ──────────────────────────── */
+
+export const mealTypeEnum = pgEnum("meal_type", ["breakfast", "lunch", "dinner", "snack"]);
+
+export const nutritionGoals = pgTable("nutrition_goals", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" })
+    .unique(),
+  calories: integer("calories").notNull().default(2000),
+  proteinG: integer("protein_g").notNull().default(150),
+  carbsG: integer("carbs_g").notNull().default(200),
+  fatG: integer("fat_g").notNull().default(65),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const foodLog = pgTable(
+  "food_log",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    date: date("date").notNull(),
+    mealType: mealTypeEnum("meal_type").notNull(),
+    foodName: text("food_name").notNull(),
+    calories: integer("calories").notNull(),
+    proteinG: real("protein_g").notNull().default(0),
+    carbsG: real("carbs_g").notNull().default(0),
+    fatG: real("fat_g").notNull().default(0),
+    servingDesc: text("serving_desc"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    userDateIdx: index("food_log_user_date_idx").on(t.userId, t.date),
+  })
+);
+
+export type NutritionGoal = typeof nutritionGoals.$inferSelect;
+export type FoodLogEntry = typeof foodLog.$inferSelect;
+
 /* ──────────────────────── Type exports ───────────────────────── */
 
 export type User = typeof users.$inferSelect;

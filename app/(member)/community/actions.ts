@@ -1,7 +1,7 @@
 "use server";
 
 import { auth } from "@clerk/nextjs/server";
-import { db, users, posts, postLikes, postComments, postReactions } from "@/lib/db";
+import { db, users, posts, postLikes, postComments, postReactions, pollOptions as pollOptionsTable, pollVotes, postBookmarks } from "@/lib/db";
 import { and, asc, eq, ilike, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { logActivity } from "@/lib/streak";
@@ -94,6 +94,7 @@ export async function createPost(input: {
   body: string;
   category?: string;
   attachments?: Attachment[];
+  pollOptions?: string[];
 }) {
   const { userId: clerkId } = await auth();
   if (!clerkId) throw new Error("not authenticated");
@@ -101,8 +102,13 @@ export async function createPost(input: {
   if (!me) throw new Error("no user");
 
   const body = input.body.trim().slice(0, 4000);
-  // Accept post if it has a body OR at least one attachment (photo-only posts allowed)
-  if (!body && (!input.attachments || !input.attachments.length)) return;
+  const validPollOptions = (input.pollOptions ?? [])
+    .map((o) => o.trim().slice(0, 200))
+    .filter(Boolean);
+  const hasPoll = validPollOptions.length >= 2;
+
+  // Accept post if it has a body, attachment, or a poll
+  if (!body && (!input.attachments || !input.attachments.length) && !hasPoll) return;
 
   const [newPost] = await db
     .insert(posts)
@@ -115,6 +121,16 @@ export async function createPost(input: {
     })
     .returning();
 
+  if (hasPoll) {
+    await db.insert(pollOptionsTable).values(
+      validPollOptions.slice(0, 4).map((text, position) => ({
+        postId: newPost.id,
+        text,
+        position,
+      }))
+    );
+  }
+
   await logActivity({
     userId: me.id,
     type: "post_created",
@@ -124,6 +140,69 @@ export async function createPost(input: {
 
   revalidatePath("/community");
   revalidatePath("/dashboard");
+}
+
+export async function votePoll(
+  postId: string,
+  optionId: string
+): Promise<{ optionVoteCounts: Record<string, number>; myVoteOptionId: string | null }> {
+  const me = await requireMember();
+
+  const [existing] = await db
+    .select({ optionId: pollVotes.optionId })
+    .from(pollVotes)
+    .where(and(eq(pollVotes.postId, postId), eq(pollVotes.userId, me.id)))
+    .limit(1);
+
+  if (existing) {
+    if (existing.optionId === optionId) {
+      await db
+        .delete(pollVotes)
+        .where(and(eq(pollVotes.postId, postId), eq(pollVotes.userId, me.id)));
+      const votes = await db
+        .select({ optionId: pollVotes.optionId })
+        .from(pollVotes)
+        .where(eq(pollVotes.postId, postId));
+      const counts: Record<string, number> = {};
+      for (const v of votes) counts[v.optionId] = (counts[v.optionId] ?? 0) + 1;
+      return { optionVoteCounts: counts, myVoteOptionId: null };
+    } else {
+      await db
+        .update(pollVotes)
+        .set({ optionId })
+        .where(and(eq(pollVotes.postId, postId), eq(pollVotes.userId, me.id)));
+    }
+  } else {
+    await db.insert(pollVotes).values({ postId, optionId, userId: me.id });
+  }
+
+  const votes = await db
+    .select({ optionId: pollVotes.optionId })
+    .from(pollVotes)
+    .where(eq(pollVotes.postId, postId));
+  const counts: Record<string, number> = {};
+  for (const v of votes) counts[v.optionId] = (counts[v.optionId] ?? 0) + 1;
+  return { optionVoteCounts: counts, myVoteOptionId: optionId };
+}
+
+export async function toggleBookmark(
+  postId: string
+): Promise<{ bookmarked: boolean }> {
+  const me = await requireMember();
+
+  const [existing] = await db
+    .select({ id: postBookmarks.id })
+    .from(postBookmarks)
+    .where(and(eq(postBookmarks.postId, postId), eq(postBookmarks.userId, me.id)))
+    .limit(1);
+
+  if (existing) {
+    await db.delete(postBookmarks).where(eq(postBookmarks.id, existing.id));
+    return { bookmarked: false };
+  }
+
+  await db.insert(postBookmarks).values({ postId, userId: me.id });
+  return { bookmarked: true };
 }
 
 async function requireMember() {

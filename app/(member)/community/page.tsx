@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { db, posts, users, postLikes, postComments, postReactions, challenges } from "@/lib/db";
+import { db, posts, users, postLikes, postComments, postReactions, challenges, pollOptions, pollVotes, postBookmarks } from "@/lib/db";
 import { and, desc, eq, gte, ilike, inArray, sql } from "drizzle-orm";
 import { auth } from "@clerk/nextjs/server";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -43,6 +43,7 @@ export default async function CommunityPage({
     : null;
   const myPostsActive = rawFilter === "mine";
   const hotActive = rawFilter === "hot";
+  const savedActive = rawFilter === "saved";
   const searchQuery = rawQ?.trim().slice(0, 100) || null;
 
   // ── Phase 1: auth + sidebar data (all independent) ───────────────────────
@@ -98,20 +99,29 @@ export default async function CommunityPage({
   ];
 
   const [rows, hasPostedResult] = await Promise.all([
-    db.select({ post: posts, author: users })
-      .from(posts)
-      .leftJoin(users, eq(users.id, posts.userId))
-      .where(filters.length > 0 ? and(...filters) : undefined)
-      .orderBy(
-        ...(hotActive
-          ? [desc(sql`${posts.likeCount} + ${posts.commentCount}`)]
-          : [
-              sql`${posts.pinnedAt} DESC NULLS LAST`,
-              desc(posts.createdAt),
-            ])
-      )
-      .limit(30)
-      .catch((err) => { console.error("[community] posts query failed:", err); return []; }),
+    savedActive && meId
+      ? db.select({ post: posts, author: users })
+          .from(postBookmarks)
+          .where(eq(postBookmarks.userId, meId))
+          .innerJoin(posts, eq(posts.id, postBookmarks.postId))
+          .leftJoin(users, eq(users.id, posts.userId))
+          .orderBy(desc(postBookmarks.createdAt))
+          .limit(30)
+          .catch((err) => { console.error("[community] saved query failed:", err); return []; })
+      : db.select({ post: posts, author: users })
+          .from(posts)
+          .leftJoin(users, eq(users.id, posts.userId))
+          .where(filters.length > 0 ? and(...filters) : undefined)
+          .orderBy(
+            ...(hotActive
+              ? [desc(sql`${posts.likeCount} + ${posts.commentCount}`)]
+              : [
+                  sql`${posts.pinnedAt} DESC NULLS LAST`,
+                  desc(posts.createdAt),
+                ])
+          )
+          .limit(30)
+          .catch((err) => { console.error("[community] posts query failed:", err); return []; }),
     meId
       ? db.select({ count: sql<number>`count(*)::int` })
           .from(posts)
@@ -127,11 +137,14 @@ export default async function CommunityPage({
   const reactionCountsByPost = new Map<string, Record<string, number>>();
   const myReactionsByPost = new Map<string, string[]>();
   const previewByPost = new Map<string, CommentRow[]>();
+  const pollOptionsByPost = new Map<string, { id: string; text: string; position: number; voteCount: number }[]>();
+  const myVoteByPost = new Map<string, string>();
+  const bookmarkedPostIds = new Set<string>();
 
   if (rows.length > 0) {
     const ids = rows.map((r) => r.post.id);
 
-    const [likesResult, allReactions, commentRows] = await Promise.all([
+    const [likesResult, allReactions, commentRows, allPollOptions, allPollVotes, myBookmarks] = await Promise.all([
       meId
         ? db.select({ postId: postLikes.postId })
             .from(postLikes)
@@ -159,9 +172,24 @@ export default async function CommunityPage({
         .where(inArray(postComments.postId, ids))
         .orderBy(desc(postComments.createdAt))
         .catch((err) => { console.error("[community] comments query failed:", err); return []; }),
+      db.select({ id: pollOptions.id, postId: pollOptions.postId, text: pollOptions.text, position: pollOptions.position })
+        .from(pollOptions)
+        .where(inArray(pollOptions.postId, ids))
+        .catch(() => [] as { id: string; postId: string; text: string; position: number }[]),
+      db.select({ postId: pollVotes.postId, optionId: pollVotes.optionId, userId: pollVotes.userId })
+        .from(pollVotes)
+        .where(inArray(pollVotes.postId, ids))
+        .catch(() => [] as { postId: string; optionId: string; userId: string }[]),
+      meId
+        ? db.select({ postId: postBookmarks.postId })
+            .from(postBookmarks)
+            .where(and(eq(postBookmarks.userId, meId), inArray(postBookmarks.postId, ids)))
+            .catch(() => [] as { postId: string }[])
+        : Promise.resolve([] as { postId: string }[]),
     ]);
 
     likesResult.forEach((l) => likedPostIds.add(l.postId));
+    myBookmarks.forEach((b) => bookmarkedPostIds.add(b.postId));
 
     for (const r of allReactions) {
       const counts = reactionCountsByPost.get(r.postId) ?? {};
@@ -172,6 +200,18 @@ export default async function CommunityPage({
         mine.push(r.emoji);
         myReactionsByPost.set(r.postId, mine);
       }
+    }
+
+    // Build vote count map per option
+    const voteCountByOption = new Map<string, number>();
+    for (const v of allPollVotes) {
+      voteCountByOption.set(v.optionId, (voteCountByOption.get(v.optionId) ?? 0) + 1);
+      if (meId && v.userId === meId) myVoteByPost.set(v.postId, v.optionId);
+    }
+    for (const opt of allPollOptions) {
+      const list = pollOptionsByPost.get(opt.postId) ?? [];
+      list.push({ ...opt, voteCount: voteCountByOption.get(opt.id) ?? 0 });
+      pollOptionsByPost.set(opt.postId, list);
     }
 
     // Cap at 2 preview comments per post in JS
@@ -252,6 +292,19 @@ export default async function CommunityPage({
           >
             My Posts
           </Link>
+          {meId && (
+            <Link
+              href="/community?filter=saved"
+              className={cn(
+                "shrink-0 rounded-full px-4 py-1.5 text-[13px] font-semibold transition-colors",
+                savedActive
+                  ? "bg-primary text-white"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              )}
+            >
+              🔖 Saved
+            </Link>
+          )}
         </div>
       </div>
 
@@ -293,7 +346,7 @@ export default async function CommunityPage({
       {/* Section header */}
       <div className="flex items-center justify-between px-5 pt-5 pb-2">
         <h2 className="text-lg font-extrabold text-gray-900">
-          {searchQuery ? `Results for "${searchQuery}"` : hotActive ? "🔥 Trending" : myPostsActive ? "My Posts" : activeCategory ? CATEGORY_LABELS[activeCategory] ?? "Posts" : "Recent Posts"}
+          {searchQuery ? `Results for "${searchQuery}"` : hotActive ? "🔥 Trending" : myPostsActive ? "My Posts" : savedActive ? "🔖 Saved Posts" : activeCategory ? CATEGORY_LABELS[activeCategory] ?? "Posts" : "Recent Posts"}
         </h2>
         <Link href="/community/members" className="flex items-center gap-0.5 text-sm text-gray-400">
           Members <ChevronRight className="size-4" />
@@ -305,10 +358,10 @@ export default async function CommunityPage({
         {rows.length === 0 ? (
           <div className="px-5 py-16 text-center">
             <p className="text-lg font-bold text-gray-900">
-              {searchQuery ? `No posts matching "${searchQuery}"` : myPostsActive ? "You haven't posted yet" : activeCategory ? "Nothing in this category yet" : "Be the first to post"}
+              {searchQuery ? `No posts matching "${searchQuery}"` : savedActive ? "No saved posts yet" : myPostsActive ? "You haven't posted yet" : activeCategory ? "Nothing in this category yet" : "Be the first to post"}
             </p>
             <p className="mt-1 text-sm text-gray-400">
-              {searchQuery ? "Try different keywords." : myPostsActive ? "Share a win, ask a question, or drop a recipe." : "Tap the post box above to get started."}
+              {searchQuery ? "Try different keywords." : savedActive ? "Tap the bookmark icon on any post to save it here." : myPostsActive ? "Share a win, ask a question, or drop a recipe." : "Tap the post box above to get started."}
             </p>
           </div>
         ) : (
@@ -325,6 +378,9 @@ export default async function CommunityPage({
                 previewComments={previewByPost.get(post.id) ?? []}
                 initialReactionCounts={reactionCountsByPost.get(post.id) ?? {}}
                 initialMyReactions={myReactionsByPost.get(post.id) ?? []}
+                pollOptions={pollOptionsByPost.get(post.id)}
+                myVoteOptionId={myVoteByPost.get(post.id) ?? null}
+                initialBookmarked={bookmarkedPostIds.has(post.id)}
               />
             </div>
           ))

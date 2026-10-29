@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { FileText, X, Paperclip, Loader2, Upload, Play } from "lucide-react";
+import { FileText, X, Paperclip, Loader2, Upload, Play, BarChart2, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { upload as blobUpload } from "@vercel/blob/client";
 import { GifPicker } from "@/components/community/gif-picker";
@@ -51,6 +51,8 @@ export function NewPostForm({
   const [isPending, startTransition] = useTransition();
   const [stagedGif, setStagedGif] = useState<string | null>(null);
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
+  const [pollMode, setPollMode] = useState(false);
+  const [pollOptionTexts, setPollOptionTexts] = useState(["", ""]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -147,15 +149,19 @@ export function NewPostForm({
   }
 
   function submit() {
-    if (!body.trim() && !attachments.length && !stagedGif) return;
+    const validPollOptions = pollMode ? pollOptionTexts.filter((o) => o.trim()) : [];
+    const hasPoll = validPollOptions.length >= 2;
+    if (!body.trim() && !attachments.length && !stagedGif && !hasPoll) return;
     startTransition(async () => {
       const allAttachments: Attachment[] = [...attachments];
       if (stagedGif) allAttachments.push({ type: "gif", url: stagedGif, filename: "giphy.gif", size: 0 });
-      await createPost({ body, category, attachments: allAttachments });
+      await createPost({ body, category, attachments: allAttachments, pollOptions: hasPoll ? validPollOptions : undefined });
       setBody("");
       setAttachments([]);
       setStagedGif(null);
       setCategory("general");
+      setPollMode(false);
+      setPollOptionTexts(["", ""]);
       setExpanded(false);
     });
   }
@@ -341,6 +347,56 @@ export function NewPostForm({
         </div>
       )}
 
+      {/* Poll builder */}
+      {pollMode && (
+        <div className="mt-3 rounded-xl border bg-muted/30 p-3 space-y-2">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Poll options</span>
+            <button
+              type="button"
+              onClick={() => { setPollMode(false); setPollOptionTexts(["", ""]); }}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+          {pollOptionTexts.map((opt, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input
+                type="text"
+                value={opt}
+                onChange={(e) => {
+                  const next = [...pollOptionTexts];
+                  next[i] = e.target.value;
+                  setPollOptionTexts(next);
+                }}
+                placeholder={`Option ${i + 1}`}
+                maxLength={200}
+                className="flex-1 rounded-lg border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/40"
+              />
+              {pollOptionTexts.length > 2 && (
+                <button
+                  type="button"
+                  onClick={() => setPollOptionTexts((p) => p.filter((_, j) => j !== i))}
+                  className="shrink-0 text-muted-foreground hover:text-destructive"
+                >
+                  <X className="size-4" />
+                </button>
+              )}
+            </div>
+          ))}
+          {pollOptionTexts.length < 4 && (
+            <button
+              type="button"
+              onClick={() => setPollOptionTexts((p) => [...p, ""])}
+              className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+            >
+              <Plus className="size-3" /> Add option
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Hidden file picker — accepts images, PDFs, and videos */}
       <input
         ref={fileInputRef}
@@ -409,6 +465,17 @@ export function NewPostForm({
               onClose={() => setGifPickerOpen(false)}
             />
           )}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setPollMode((o) => !o)}
+            className={cn(pollMode && "bg-muted text-foreground")}
+            title="Add a poll"
+          >
+            <BarChart2 className="size-4" />
+            <span className="hidden sm:inline">Poll</span>
+          </Button>
           <select
             value={category}
             onChange={(e) => setCategory(e.target.value)}
@@ -431,6 +498,8 @@ export function NewPostForm({
               setBody("");
               setAttachments([]);
               setCategory("general");
+              setPollMode(false);
+              setPollOptionTexts(["", ""]);
               setError(null);
             }}
           >
@@ -438,7 +507,12 @@ export function NewPostForm({
           </Button>
           <Button
             onClick={submit}
-            disabled={(!body.trim() && !attachments.length) || isPending || uploading}
+            disabled={(
+              !body.trim() &&
+              !attachments.length &&
+              !stagedGif &&
+              !(pollMode && pollOptionTexts.filter((o) => o.trim()).length >= 2)
+            ) || isPending || uploading}
             variant="gradient"
           >
             {isPending ? "Posting..." : "Post"}
