@@ -7,6 +7,7 @@ import { Lock, Trophy, TrendingDown, Flame, LineChart, Sparkles, Dumbbell, Clock
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
 import { NewEntryForm } from "./new-entry-form";
+import { PhotoCompare } from "./photo-compare";
 import { formatDate } from "@/lib/utils";
 import { computeProgressInsights } from "@/lib/insights";
 import {
@@ -269,41 +270,15 @@ export default async function ProgressPage() {
               </Card>
             ) : (
               <div className="mt-4 space-y-5">
-                {/* Before / Now comparison */}
+                {/* Interactive before/after comparison */}
                 {hasComparison && (
-                  <Card>
-                    <CardContent className="p-4">
-                      <p className="mb-3 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                        Your transformation
-                      </p>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <div className="overflow-hidden rounded-xl aspect-[3/4] bg-muted">
-                            <img
-                              src={first.photoUrls[0]}
-                              alt="First check-in"
-                              className="size-full object-cover"
-                            />
-                          </div>
-                          <p className="mt-1.5 text-center text-xs text-muted-foreground">
-                            {formatDate(String(first.entryDate), { month: "short", day: "numeric" })}
-                          </p>
-                        </div>
-                        <div>
-                          <div className="overflow-hidden rounded-xl aspect-[3/4] bg-muted">
-                            <img
-                              src={latest.photoUrls[0]}
-                              alt="Latest check-in"
-                              className="size-full object-cover"
-                            />
-                          </div>
-                          <p className="mt-1.5 text-center text-xs font-semibold text-primary">
-                            Now
-                          </p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <PhotoCompare
+                    entries={photoEntries.map((e) => ({
+                      id: e.id,
+                      entryDate: String(e.entryDate),
+                      photoUrls: e.photoUrls,
+                    }))}
+                  />
                 )}
 
                 {/* Full grid */}

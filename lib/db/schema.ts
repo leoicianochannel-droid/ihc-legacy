@@ -342,11 +342,46 @@ export const activityLog = pgTable(
   })
 );
 
+/* ──────────────────────── Rooms ─────────────────────────────── */
+
+export const rooms = pgTable("rooms", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  emoji: text("emoji").notNull().default("💬"),
+  coverUrl: text("cover_url"),
+  sortOrder: integer("sort_order").default(0).notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const roomMembers = pgTable(
+  "room_members",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    roomId: uuid("room_id")
+      .notNull()
+      .references(() => rooms.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    joinedAt: timestamp("joined_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    unique: uniqueIndex("room_members_unique").on(t.roomId, t.userId),
+    userIdx: index("room_members_user_idx").on(t.userId),
+  })
+);
+
+export type Room = typeof rooms.$inferSelect;
+
 export const posts = pgTable("posts", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
+  roomId: uuid("room_id").references(() => rooms.id, { onDelete: "set null" }),
   category: postCategoryEnum("category").default("general").notNull(),
   body: text("body").notNull(),
   photoUrls: text("photo_urls").array().default([]).notNull(),                // legacy

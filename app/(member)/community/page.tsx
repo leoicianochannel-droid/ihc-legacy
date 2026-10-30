@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { db, posts, users, postLikes, postComments, postReactions, challenges, pollOptions, pollVotes, postBookmarks } from "@/lib/db";
-import { and, desc, eq, gte, ilike, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, ilike, inArray, isNull, sql } from "drizzle-orm";
 import { auth } from "@clerk/nextjs/server";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ChevronRight, Flame } from "lucide-react";
@@ -92,6 +92,7 @@ export default async function CommunityPage({
   // ── Phase 3: posts + hasPosted (both depend on meId, run together) ────────
   const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
   const filters = [
+    isNull(posts.roomId),  // main feed excludes room posts
     ...(activeCategory ? [eq(posts.category, activeCategory)] : []),
     ...(myPostsActive && meId ? [eq(posts.userId, meId)] : []),
     ...(hotActive ? [gte(posts.createdAt, fortyEightHoursAgo)] : []),
@@ -305,6 +306,12 @@ export default async function CommunityPage({
               🔖 Saved
             </Link>
           )}
+          <Link
+            href="/community/rooms"
+            className="shrink-0 rounded-full px-4 py-1.5 text-[13px] font-semibold transition-colors bg-gray-100 text-gray-600 hover:bg-gray-200"
+          >
+            🏠 Rooms
+          </Link>
         </div>
       </div>
 

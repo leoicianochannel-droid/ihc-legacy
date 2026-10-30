@@ -1,7 +1,7 @@
 "use server";
 
 import { auth } from "@clerk/nextjs/server";
-import { db, users, posts, postLikes, postComments, postReactions, pollOptions as pollOptionsTable, pollVotes, postBookmarks } from "@/lib/db";
+import { db, users, posts, postLikes, postComments, postReactions, pollOptions as pollOptionsTable, pollVotes, postBookmarks, rooms } from "@/lib/db";
 import { and, asc, eq, ilike, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { logActivity } from "@/lib/streak";
@@ -95,6 +95,7 @@ export async function createPost(input: {
   category?: string;
   attachments?: Attachment[];
   pollOptions?: string[];
+  roomId?: string;
 }) {
   const { userId: clerkId } = await auth();
   if (!clerkId) throw new Error("not authenticated");
@@ -110,6 +111,13 @@ export async function createPost(input: {
   // Accept post if it has a body, attachment, or a poll
   if (!body && (!input.attachments || !input.attachments.length) && !hasPoll) return;
 
+  // Validate roomId if provided
+  let roomId: string | null = null;
+  if (input.roomId) {
+    const [room] = await db.select({ id: rooms.id }).from(rooms).where(eq(rooms.id, input.roomId)).limit(1);
+    if (room) roomId = room.id;
+  }
+
   const [newPost] = await db
     .insert(posts)
     .values({
@@ -118,6 +126,7 @@ export async function createPost(input: {
       category: (input.category ?? "general") as
         | "general" | "wins" | "questions" | "recipes" | "transformation",
       attachments: input.attachments ?? [],
+      roomId,
     })
     .returning();
 
@@ -139,6 +148,7 @@ export async function createPost(input: {
   });
 
   revalidatePath("/community");
+  if (roomId) revalidatePath(`/community/rooms/${input.roomId}`);
   revalidatePath("/dashboard");
 }
 

@@ -32,9 +32,11 @@ const VIDEO_TYPES = new Set([
 export function NewPostForm({
   showIntroPrompt = false,
   memberFirstName,
+  roomId,
 }: {
   showIntroPrompt?: boolean;
   memberFirstName?: string | null;
+  roomId?: string;
 }) {
   const { user } = useUser();
   const [expanded, setExpanded] = useState(false);
@@ -155,7 +157,7 @@ export function NewPostForm({
     startTransition(async () => {
       const allAttachments: Attachment[] = [...attachments];
       if (stagedGif) allAttachments.push({ type: "gif", url: stagedGif, filename: "giphy.gif", size: 0 });
-      await createPost({ body, category, attachments: allAttachments, pollOptions: hasPoll ? validPollOptions : undefined });
+      await createPost({ body, category, attachments: allAttachments, pollOptions: hasPoll ? validPollOptions : undefined, roomId });
       setBody("");
       setAttachments([]);
       setStagedGif(null);

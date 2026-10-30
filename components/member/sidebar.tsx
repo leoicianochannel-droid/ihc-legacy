@@ -65,6 +65,7 @@ const NAV: NavItem[] = [
     icon: Users,
     children: [
       { href: "/community", label: "Feed" },
+      { href: "/community/rooms", label: "Rooms" },
       { href: "/community/members", label: "Members" },
       { href: "/community/buddy", label: "Accountability Buddy" },
       { href: "/leaderboard", label: "Leaderboard" },
