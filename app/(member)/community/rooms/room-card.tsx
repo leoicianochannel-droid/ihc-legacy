@@ -38,17 +38,13 @@ export function RoomCard({
   }
 
   return (
-    <div className="flex items-center gap-4 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+    <div className="relative flex items-center gap-4 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm hover:border-primary/30 hover:shadow-md transition-all">
+      <Link href={`/community/rooms/${room.slug}`} className="absolute inset-0 rounded-2xl" aria-label={`Open ${room.name} room`} />
       <div className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-primary/8 text-3xl">
         {room.emoji}
       </div>
       <div className="min-w-0 flex-1">
-        <Link
-          href={`/community/rooms/${room.slug}`}
-          className="text-base font-bold text-gray-900 hover:text-primary transition-colors"
-        >
-          {room.name}
-        </Link>
+        <p className="text-base font-bold text-gray-900">{room.name}</p>
         {room.description && (
           <p className="mt-0.5 text-sm text-muted-foreground line-clamp-2">{room.description}</p>
         )}
@@ -62,8 +58,8 @@ export function RoomCard({
           variant={isJoined ? "outline" : "gradient"}
           size="sm"
           disabled={pending}
-          onClick={toggle}
-          className="shrink-0"
+          onClick={(e) => { e.preventDefault(); toggle(); }}
+          className="relative z-10 shrink-0"
         >
           {pending ? "…" : isJoined ? "Leave" : "Join"}
         </Button>
