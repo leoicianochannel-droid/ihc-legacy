@@ -12,12 +12,13 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const videoUrl = body.videoUrl as string | undefined;
+  const coverUrl = body.coverUrl as string | undefined;
   if (!videoUrl) return NextResponse.json({ error: "videoUrl required" }, { status: 400 });
 
   await db.execute(sql`
     INSERT INTO workouts (
       slug, title, description, instructor, duration_min, intensity,
-      body_focus, equipment, uses_hoop, video_url, published_at, sort_order
+      body_focus, equipment, uses_hoop, video_url, thumbnail_url, published_at, sort_order
     ) VALUES (
       'november-glow',
       'November Glow',
@@ -29,11 +30,13 @@ export async function POST(req: Request) {
       ARRAY['hoop'],
       true,
       ${videoUrl},
+      ${coverUrl ?? null},
       NOW(),
       0
     )
     ON CONFLICT (slug) DO UPDATE SET
       video_url = EXCLUDED.video_url,
+      thumbnail_url = COALESCE(EXCLUDED.thumbnail_url, workouts.thumbnail_url),
       published_at = COALESCE(workouts.published_at, EXCLUDED.published_at)
   `);
 
