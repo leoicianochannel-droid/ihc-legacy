@@ -40,8 +40,9 @@ export async function POST(req: Request) {
 
   // Find all challenge members for reward-eligible challenges and their check-in counts
   const eligibleSlugs = Object.keys(CHALLENGE_REWARDS);
+  const slugList = eligibleSlugs.map(s => `'${s.replace(/'/g, "''")}'`).join(", ");
 
-  const members = await db.execute(sql`
+  const members = await db.execute(sql.raw(`
     SELECT
       cm.id AS challenge_member_id,
       cm.user_id,
@@ -50,10 +51,10 @@ export async function POST(req: Request) {
     FROM challenge_members cm
     JOIN challenges c ON c.id = cm.challenge_id
     LEFT JOIN challenge_checkins cc ON cc.challenge_member_id = cm.id
-    WHERE c.slug = ANY(${eligibleSlugs})
+    WHERE c.slug IN (${slugList})
     GROUP BY cm.id, cm.user_id, c.slug
     HAVING COUNT(DISTINCT cc.day_number) >= 7
-  `);
+  `));
 
   let inserted = 0;
   let skipped = 0;
