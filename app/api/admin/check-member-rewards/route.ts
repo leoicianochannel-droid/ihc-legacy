@@ -22,15 +22,15 @@ export async function GET(req: NextRequest) {
       c.slug AS challenge_slug,
       c.title AS challenge_title,
       COUNT(DISTINCT cc.day_number) AS raw_checkin_count,
-      cm.joined_at,
+      cm.started_at,
       cm.completed_at
     FROM users u
     JOIN challenge_members cm ON cm.user_id = u.id
     JOIN challenges c ON c.id = cm.challenge_id
     LEFT JOIN challenge_checkins cc ON cc.challenge_member_id = cm.id
     WHERE lower(u.email) = lower(${email})
-    GROUP BY u.id, u.email, u.first_name, cm.id, c.slug, c.title, cm.joined_at, cm.completed_at
-    ORDER BY cm.joined_at DESC
+    GROUP BY u.id, u.email, u.first_name, cm.id, c.slug, c.title, cm.started_at, cm.completed_at
+    ORDER BY cm.started_at DESC
   `);
 
   return NextResponse.json({ ok: true, rows: result });
