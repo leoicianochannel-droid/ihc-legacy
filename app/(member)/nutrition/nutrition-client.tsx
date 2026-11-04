@@ -13,6 +13,15 @@ import type { NutritionGoal, FoodLogEntry } from "@/lib/db/schema";
 import type { FoodSearchResult } from "@/app/api/nutrition/search/route";
 
 type MealType = "breakfast" | "lunch" | "dinner" | "snack";
+
+export type RecentFood = {
+  foodName: string;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  servingDesc: string | null;
+};
 const MEALS: { key: MealType; label: string; emoji: string }[] = [
   { key: "breakfast", label: "Breakfast", emoji: "🌅" },
   { key: "lunch", label: "Lunch", emoji: "☀️" },
@@ -102,9 +111,9 @@ function Modal({ open, onClose, title, children }: {
 }
 
 function AddFoodModal({
-  open, onClose, date, mealType,
+  open, onClose, date, mealType, recentFoods,
 }: {
-  open: boolean; onClose: () => void; date: string; mealType: MealType;
+  open: boolean; onClose: () => void; date: string; mealType: MealType; recentFoods: RecentFood[];
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<FoodSearchResult[]>([]);
@@ -189,6 +198,44 @@ function AddFoodModal({
             />
             {searching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 size-4 animate-spin text-muted-foreground" />}
           </div>
+
+          {/* Recents — shown when no search query is active */}
+          {!query && recentFoods.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Recently logged</p>
+              <div className="space-y-1 max-h-56 overflow-y-auto">
+                {recentFoods.map((f, i) => (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      const fd = new FormData();
+                      fd.set("date", date);
+                      fd.set("mealType", mealType);
+                      fd.set("foodName", f.foodName);
+                      fd.set("calories", String(f.calories));
+                      fd.set("proteinG", String(f.proteinG));
+                      fd.set("carbsG", String(f.carbsG));
+                      fd.set("fatG", String(f.fatG));
+                      fd.set("servingDesc", f.servingDesc ?? "");
+                      startTransition(async () => { await logFood(fd); onClose(); });
+                    }}
+                    className="w-full text-left rounded-lg border px-3 py-2.5 hover:bg-muted/50 transition-colors"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-medium text-sm leading-tight truncate">{f.foodName}</div>
+                      <span className="shrink-0 text-xs font-semibold text-primary">+ Add</span>
+                    </div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      {f.calories} kcal
+                      {f.proteinG ? ` · ${Math.round(f.proteinG)}g protein` : ""}
+                      {f.servingDesc ? ` · ${f.servingDesc}` : ""}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {results.length > 0 && (
             <div className="space-y-1 max-h-64 overflow-y-auto">
               {results.map((r) => (
@@ -319,10 +366,12 @@ export function NutritionClient({
   date,
   entries,
   goals,
+  recentFoods = [],
 }: {
   date: string;
   entries: FoodLogEntry[];
   goals: NutritionGoal | null;
+  recentFoods?: RecentFood[];
 }) {
   const router = useRouter();
   const [addMeal, setAddMeal] = useState<MealType | null>(null);
@@ -453,6 +502,7 @@ export function NutritionClient({
         onClose={() => setAddMeal(null)}
         date={date}
         mealType={addMeal ?? "snack"}
+        recentFoods={recentFoods}
       />
       <GoalsModal open={showGoals} onClose={() => setShowGoals(false)} goals={goals} />
     </div>

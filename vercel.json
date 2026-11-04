@@ -11,6 +11,10 @@
       "schedule": "0 18 * * *"
     },
     {
+      "path": "/api/cron/challenge-reminder-all",
+      "schedule": "0 18 * * *"
+    },
+    {
       "path": "/api/cron/challenge-weekly",
       "schedule": "0 13 * * 1"
     },
