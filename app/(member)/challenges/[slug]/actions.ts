@@ -186,7 +186,8 @@ export async function markChallengeDayComplete(memberId: string, dayNumber: numb
       completedCheckable = doneSet.size;
     }
 
-    const earned = getHighestEarnedReward(challenge.slug, completedCheckable);
+    // Use raw check-in count: thresholds count days, not deduplicated workout cards.
+    const earned = getHighestEarnedReward(challenge.slug, doneSet.size);
     if (earned) {
       await ensureRewardTable();
       await db.execute(sql`
