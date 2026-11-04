@@ -183,8 +183,11 @@ export default async function ChallengeDetail({
     ? weekGroups.reduce((n, g) => n + g.uniqueDays.filter(d => isWorkoutCardDone(d)).length, 0)
     : completedDays.size;
 
-  const earnedReward = membership ? getHighestEarnedReward(c.slug, completedCheckable) : null;
-  const nextReward = membership ? getNextReward(c.slug, completedCheckable) : null;
+  // Reward thresholds count raw check-in days, not deduplicated workout cards.
+  // Week-grouped challenges show 9 unique cards but members accumulate 21 raw check-ins.
+  const rawCheckinCount = completedDays.size;
+  const earnedReward = membership ? getHighestEarnedReward(c.slug, rawCheckinCount) : null;
+  const nextReward = membership ? getNextReward(c.slug, rawCheckinCount) : null;
 
   // Self-heal: if a member has completed every checkable card but lacks completedAt,
   // they got stuck due to an earlier bug. Retroactively mark complete. Idempotent.
