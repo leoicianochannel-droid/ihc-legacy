@@ -13,6 +13,16 @@ export interface FoodSearchResult {
   };
 }
 
+// USDA FoodData Central nutrient IDs
+const NID_CALORIES = 1008;
+const NID_PROTEIN  = 1003;
+const NID_CARBS    = 1005;
+const NID_FAT      = 1004;
+
+function getNutrient(nutrients: Array<{ nutrientId: number; value: number }>, id: number): number {
+  return nutrients.find((n) => n.nutrientId === id)?.value ?? 0;
+}
+
 export async function GET(req: Request) {
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
@@ -21,43 +31,46 @@ export async function GET(req: Request) {
   const q = searchParams.get("q")?.trim();
   if (!q) return NextResponse.json({ results: [] });
 
-  const url = new URL("https://world.openfoodfacts.org/cgi/search.pl");
-  url.searchParams.set("search_terms", q);
-  url.searchParams.set("json", "1");
-  url.searchParams.set("page_size", "30");
-  url.searchParams.set("fields", "id,product_name,brands,nutriments,serving_size");
-  url.searchParams.set("lc", "en");
-  url.searchParams.set("sort_by", "unique_scans_n");
+  const apiKey = process.env.USDA_API_KEY;
+  if (!apiKey) {
+    console.error("USDA_API_KEY is not configured");
+    return NextResponse.json({ results: [], error: "nutrition_unavailable" });
+  }
+
+  const url = new URL("https://api.nal.usda.gov/fdc/v1/foods/search");
+  url.searchParams.set("api_key", apiKey);
+  url.searchParams.set("query", q);
+  url.searchParams.set("pageSize", "25");
+  // Include Foundation (raw foods), SR Legacy (standard reference), and Branded
+  url.searchParams.set("dataType", "Foundation,SR Legacy,Branded Food");
 
   const res = await fetch(url.toString(), {
-    headers: { "User-Agent": "InfinityHoop-NutritionTracker/1.0" },
     next: { revalidate: 3600 },
   });
 
   if (!res.ok) return NextResponse.json({ results: [] });
 
   const data = await res.json();
-  const results: FoodSearchResult[] = (data.products ?? [])
-    .filter((p: any) => {
-      const n = p.nutriments ?? {};
-      if (!p.product_name) return false;
-      if (typeof n["energy-kcal_100g"] !== "number" || n["energy-kcal_100g"] <= 0) return false;
-      // Skip products with non-Latin names (obvious foreign language results)
-      if (/[^\x00-\x7FÀ-ɏ]/.test(p.product_name)) return false;
-      return true;
+
+  const results: FoodSearchResult[] = (data.foods ?? [])
+    .filter((f: any) => {
+      if (!f.description) return false;
+      const nutrients: Array<{ nutrientId: number; value: number }> = f.foodNutrients ?? [];
+      const cal = getNutrient(nutrients, NID_CALORIES);
+      return cal > 0;
     })
     .slice(0, 10)
-    .map((p: any) => {
-      const n = p.nutriments ?? {};
+    .map((f: any) => {
+      const nutrients: Array<{ nutrientId: number; value: number }> = f.foodNutrients ?? [];
       return {
-        id: p.id ?? p.code ?? String(Math.random()),
-        name: p.product_name,
-        brand: p.brands?.split(",")[0]?.trim() || undefined,
+        id: String(f.fdcId),
+        name: f.description,
+        brand: f.brandOwner?.trim() || f.brandName?.trim() || undefined,
         per100g: {
-          calories: Math.round(n["energy-kcal_100g"] ?? 0),
-          proteinG: Math.round((n["proteins_100g"] ?? 0) * 10) / 10,
-          carbsG: Math.round((n["carbohydrates_100g"] ?? 0) * 10) / 10,
-          fatG: Math.round((n["fat_100g"] ?? 0) * 10) / 10,
+          calories: Math.round(getNutrient(nutrients, NID_CALORIES)),
+          proteinG: Math.round(getNutrient(nutrients, NID_PROTEIN) * 10) / 10,
+          carbsG:   Math.round(getNutrient(nutrients, NID_CARBS)   * 10) / 10,
+          fatG:     Math.round(getNutrient(nutrients, NID_FAT)     * 10) / 10,
         },
       };
     });
