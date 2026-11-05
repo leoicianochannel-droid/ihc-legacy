@@ -45,7 +45,7 @@ function createDb() {
   const client = postgres({
     ...opts,
     prepare: false,
-    max: 3,
+    max: 10,
     idle_timeout: 20,
     connect_timeout: 10,
   });

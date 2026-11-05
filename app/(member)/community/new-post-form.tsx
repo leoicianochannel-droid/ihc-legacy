@@ -155,16 +155,20 @@ export function NewPostForm({
     const hasPoll = validPollOptions.length >= 2;
     if (!body.trim() && !attachments.length && !stagedGif && !hasPoll) return;
     startTransition(async () => {
-      const allAttachments: Attachment[] = [...attachments];
-      if (stagedGif) allAttachments.push({ type: "gif", url: stagedGif, filename: "giphy.gif", size: 0 });
-      await createPost({ body, category, attachments: allAttachments, pollOptions: hasPoll ? validPollOptions : undefined, roomId });
-      setBody("");
-      setAttachments([]);
-      setStagedGif(null);
-      setCategory("general");
-      setPollMode(false);
-      setPollOptionTexts(["", ""]);
-      setExpanded(false);
+      try {
+        const allAttachments: Attachment[] = [...attachments];
+        if (stagedGif) allAttachments.push({ type: "gif", url: stagedGif, filename: "giphy.gif", size: 0 });
+        await createPost({ body, category, attachments: allAttachments, pollOptions: hasPoll ? validPollOptions : undefined, roomId });
+        setBody("");
+        setAttachments([]);
+        setStagedGif(null);
+        setCategory("general");
+        setPollMode(false);
+        setPollOptionTexts(["", ""]);
+        setExpanded(false);
+      } catch (err) {
+        setError((err as Error).message || "Failed to post. Please try again.");
+      }
     });
   }
 
