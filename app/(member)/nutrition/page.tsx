@@ -37,7 +37,7 @@ export default async function NutritionPage({
       ) sub
       ORDER BY created_at DESC
       LIMIT 10
-    `).then((r) => r as Array<{ foodName: string; calories: number; proteinG: number; carbsG: number; fatG: number; servingDesc: string | null }>),
+    `).then((r) => r as unknown as Array<{ foodName: string; calories: number; proteinG: number; carbsG: number; fatG: number; servingDesc: string | null }>),
   ]);
 
   return <NutritionClient date={date} entries={entries} goals={goalsRow} recentFoods={recentFoods} />;

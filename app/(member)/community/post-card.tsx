@@ -72,7 +72,7 @@ type Props = {
     commentCount: number;
     pinnedAt: Date | null;
     createdAt: Date;
-    photoUrls: string[];
+    photoUrls: string[] | null;
     attachments: Array<{ type: "image" | "pdf" | "video" | "gif"; url: string; filename: string; size: number }> | null;
   };
   author: {
@@ -472,10 +472,10 @@ export function PostCard({
             ))}
           </div>
         )}
-        {atts.length === 0 && post.photoUrls.length > 0 && (
+        {atts.length === 0 && (post.photoUrls ?? []).length > 0 && (
           <>
             <div className="mt-3 grid grid-cols-2 gap-2">
-              {post.photoUrls.slice(0, 4).map((url, i) => (
+              {(post.photoUrls ?? []).slice(0, 4).map((url, i) => (
                 <button
                   key={i}
                   type="button"
@@ -489,7 +489,7 @@ export function PostCard({
             </div>
             {lightboxIndex !== null && (
               <ImageLightbox
-                images={post.photoUrls.slice(0, 4).map((url) => ({ url }))}
+                images={(post.photoUrls ?? []).slice(0, 4).map((url) => ({ url }))}
                 index={lightboxIndex}
                 onClose={() => setLightboxIndex(null)}
                 onNavigate={setLightboxIndex}
