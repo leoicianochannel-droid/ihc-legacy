@@ -58,8 +58,31 @@ export async function GET() {
     ) s ON s.user_id = u.id
     WHERE u.role = 'member'
     ORDER BY score DESC
-    LIMIT 50
+    LIMIT 100
   `);
 
-  return NextResponse.json({ members: rows });
+  const header = "rank,first_name,last_name,email,tier,score,post_count,comment_count,checkin_count,workout_count,current_streak";
+  const lines = (rows as Array<Record<string, unknown>>).map((r, i) =>
+    [
+      i + 1,
+      `"${String(r.first_name ?? "").replace(/"/g, '""')}"`,
+      `"${String(r.last_name ?? "").replace(/"/g, '""')}"`,
+      `"${String(r.email ?? "").replace(/"/g, '""')}"`,
+      r.tier ?? "",
+      r.score ?? 0,
+      r.post_count ?? 0,
+      r.comment_count ?? 0,
+      r.checkin_count ?? 0,
+      r.workout_count ?? 0,
+      r.current_streak ?? 0,
+    ].join(",")
+  );
+  const csv = [header, ...lines].join("\n");
+
+  return new Response(csv, {
+    headers: {
+      "Content-Type": "text/csv",
+      "Content-Disposition": `attachment; filename="top-members-${new Date().toISOString().slice(0, 10)}.csv"`,
+    },
+  });
 }
