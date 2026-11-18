@@ -19,12 +19,16 @@ export default async function LeaderboardPage() {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
 
-  const [workouts, streaks, encouragement, challengeCheckins] = await Promise.all([
+  const [workouts, streaks, encouragement, challengeResult] = await Promise.all([
     topByWorkouts(),
     topByStreak(),
     topByEncouragement(),
     topByChallengeCheckins(),
   ]);
+
+  const challengeSubtitle = challengeResult.challengeTitle
+    ? `Most days completed${challengeResult.runStartedAt ? " — started " + challengeResult.runStartedAt.toLocaleDateString("en-US", { month: "long", year: "numeric" }) : ""}`
+    : "Most days completed this run";
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-6 md:px-10 md:py-8">
@@ -37,16 +41,18 @@ export default async function LeaderboardPage() {
       </p>
 
       <div className="mt-6 space-y-4">
+        {challengeResult.rows.length > 0 && (
         <Board
           icon={<Star className="size-4" />}
-          title="30-Day Challenge"
-          subtitle="Most days completed this run — July 2026"
-          rows={challengeCheckins}
+          title={challengeResult.challengeTitle ?? "Active Challenge"}
+          subtitle={challengeSubtitle}
+          rows={challengeResult.rows}
           unitSingular="day"
           unitPlural="days completed"
           empty="No check-ins yet — join the challenge and be first on the board."
           highlight
         />
+        )}
 
         <Board
           icon={<Trophy className="size-4" />}

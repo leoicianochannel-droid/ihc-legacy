@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Flame, Trophy, Dumbbell, MessageCircle, CalendarDays, CheckCircle2, MapPin } from "lucide-react";
 import { InlineProfileEditor } from "./inline-profile-editor";
 import { formatDate, relativeTime } from "@/lib/utils";
+import { getBadgesForUser } from "@/lib/badges";
 
 const TIER_LABELS: Record<string, string> = {
   starter: "Starter",
@@ -74,6 +75,9 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
         sql`${activityLog.createdAt} >= ${monthStart.toISOString()}`
       )
     );
+
+  // Badges
+  const allBadges = await getBadgesForUser(member.id).catch(() => []);
 
   // Recent posts
   const recentPosts = await db
@@ -192,6 +196,32 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
             Personal best streak:{" "}
             <strong>{streak!.longest} days</strong>
           </span>
+        </div>
+      )}
+
+      {/* Badges */}
+      {allBadges.length > 0 && (
+        <div className="mt-6">
+          <h2 className="mb-3 font-display text-xl font-bold">Badges</h2>
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+            {allBadges.map((badge) => (
+              <div
+                key={badge.id}
+                title={badge.description}
+                className={[
+                  "flex flex-col items-center gap-1 rounded-2xl border px-2 py-3 text-center transition-opacity",
+                  badge.earned
+                    ? "border-primary/30 bg-primary/5"
+                    : "border-dashed border-muted-foreground/20 opacity-35 grayscale",
+                ].join(" ")}
+              >
+                <span className="text-2xl leading-none">{badge.emoji}</span>
+                <span className="text-[11px] font-semibold leading-tight text-foreground/80">
+                  {badge.label}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

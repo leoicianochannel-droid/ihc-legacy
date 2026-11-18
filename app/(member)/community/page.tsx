@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { db, posts, users, postLikes, postComments, postReactions, challenges, pollOptions, pollVotes, postBookmarks } from "@/lib/db";
-import { and, desc, eq, gte, ilike, inArray, isNull, sql } from "drizzle-orm";
+import { db, posts, users, postLikes, postComments, postReactions, challenges, pollOptions, pollVotes, postBookmarks, buddyMatches, challengeMembers, activityLog } from "@/lib/db";
+import { and, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { auth } from "@clerk/nextjs/server";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ChevronRight, Flame } from "lucide-react";
@@ -9,6 +9,8 @@ import { LivePill } from "@/components/live/live-pill";
 import { NewPostForm } from "./new-post-form";
 import { PostSearch } from "./post-search";
 import { PostCard } from "./post-card";
+import { OnboardingChecklist } from "./onboarding-checklist";
+import { DecemberChallengeBanner } from "./december-challenge-banner";
 import type { CommentRow } from "./actions";
 import { topByStreak } from "@/lib/leaderboard";
 
@@ -87,6 +89,50 @@ export default async function CommunityPage({
       meAvatarUrl = me.avatarUrl;
       isAdmin = me.role === "admin";
     }
+  }
+
+  // ── December challenge banner (date-gated: Nov 28 – Dec 31 2026) ──────────
+  const BANNER_START = new Date("2026-11-28T00:00:00");
+  const BANNER_END = new Date("2026-12-31T23:59:59");
+  const showDecemberBanner = new Date() >= BANNER_START && new Date() <= BANNER_END;
+  let decemberCheckins = 0;
+  if (showDecemberBanner && meId) {
+    const dec1 = new Date("2026-12-01T00:00:00");
+    const dec31 = new Date("2026-12-31T23:59:59");
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(activityLog)
+      .where(and(
+        eq(activityLog.userId, meId),
+        eq(activityLog.type, "daily_checkin"),
+        gte(activityLog.createdAt, dec1),
+        lte(activityLog.createdAt, dec31),
+      ))
+      .catch(() => [{ count: 0 }]);
+    decemberCheckins = row?.count ?? 0;
+  }
+
+  // ── Onboarding checklist data (needs meId) ───────────────────────────────
+  let hasProfile = false;
+  let hasChallenge = false;
+  let hasBuddy = false;
+  if (meId) {
+    const [profileRow, challengeRow, buddyRow] = await Promise.all([
+      db.select({ avatarUrl: users.avatarUrl, bio: users.bio })
+        .from(users).where(eq(users.id, meId)).limit(1)
+        .catch(() => [] as { avatarUrl: string | null; bio: string | null }[]),
+      db.select({ id: challengeMembers.id })
+        .from(challengeMembers).where(eq(challengeMembers.userId, meId)).limit(1)
+        .catch(() => []),
+      db.select({ id: buddyMatches.id })
+        .from(buddyMatches)
+        .where(or(eq(buddyMatches.userAId, meId), eq(buddyMatches.userBId, meId)))
+        .limit(1)
+        .catch(() => []),
+    ]);
+    hasProfile = !!(profileRow[0]?.avatarUrl && profileRow[0]?.bio);
+    hasChallenge = challengeRow.length > 0;
+    hasBuddy = buddyRow.length > 0;
   }
 
   // ── Phase 3: posts + hasPosted (both depend on meId, run together) ────────
@@ -319,6 +365,25 @@ export default async function CommunityPage({
       <div className="border-b border-gray-100 px-5 pb-5">
         <NewPostForm showIntroPrompt={!hasPosted} memberFirstName={meFirstName} />
       </div>
+
+      {/* December Flow Challenge banner — date-gated Nov 28–Dec 31 */}
+      {showDecemberBanner && meId && (
+        <DecemberChallengeBanner
+          userId={meId}
+          decemberCheckins={decemberCheckins}
+        />
+      )}
+
+      {/* Onboarding checklist — shown until all 4 steps done or dismissed */}
+      {meId && (
+        <OnboardingChecklist
+          userId={meId}
+          hasProfile={hasProfile}
+          hasPosted={hasPosted}
+          hasChallenge={hasChallenge}
+          hasBuddy={hasBuddy}
+        />
+      )}
 
       {/* Streak leaderboard — inline, compact */}
       {streakLeaders.length > 0 && (

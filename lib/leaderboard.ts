@@ -12,8 +12,7 @@
 import { db, users, activityLog, streaks, postComments, challengeCheckins, challengeMembers, challenges } from "./db";
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 
-const CHALLENGE_SLUG = "30-day-challenge";
-const CURRENT_RUN_START = new Date("2026-07-01T00:00:00Z");
+// Unused — topByChallengeCheckins now queries the most recently started active challenge
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -23,7 +22,13 @@ export type LeaderRow = {
   lastName: string | null;
   avatarUrl: string | null;
   tier: string | null;
-  count: number;                  // metric value
+  count: number;
+};
+
+export type ChallengeLeaderResult = {
+  rows: LeaderRow[];
+  challengeTitle: string | null;
+  runStartedAt: Date | null;
 };
 
 const LIMIT = 10;
@@ -74,13 +79,18 @@ export async function topByStreak(): Promise<LeaderRow[]> {
   return rows.map((r) => ({ ...r, count: Number(r.count) }));
 }
 
-export async function topByChallengeCheckins(): Promise<LeaderRow[]> {
+export async function topByChallengeCheckins(): Promise<ChallengeLeaderResult> {
+  // Pick the active challenge with the earliest startsAt (most recent run start).
+  // Falls back to the most recently created active challenge if no startsAt is set.
   const [challenge] = await db
-    .select({ id: challenges.id })
+    .select({ id: challenges.id, title: challenges.title, startsAt: challenges.startsAt, createdAt: challenges.createdAt })
     .from(challenges)
-    .where(eq(challenges.slug, CHALLENGE_SLUG))
+    .where(eq(challenges.isActive, true))
+    .orderBy(desc(challenges.startsAt), desc(challenges.createdAt))
     .limit(1);
-  if (!challenge) return [];
+  if (!challenge) return { rows: [], challengeTitle: null, runStartedAt: null };
+
+  const runStart = challenge.startsAt ?? challenge.createdAt;
 
   const rows = await db
     .select({
@@ -97,13 +107,18 @@ export async function topByChallengeCheckins(): Promise<LeaderRow[]> {
     .where(
       and(
         eq(challengeMembers.challengeId, challenge.id),
-        gte(challengeCheckins.completedAt, CURRENT_RUN_START)
+        gte(challengeCheckins.completedAt, runStart)
       )
     )
     .groupBy(users.id, users.firstName, users.lastName, users.avatarUrl, users.tier)
     .orderBy(desc(sql`count(${challengeCheckins.id})`))
     .limit(LIMIT);
-  return rows.map((r) => ({ ...r, count: Number(r.count) }));
+
+  return {
+    rows: rows.map((r) => ({ ...r, count: Number(r.count) })),
+    challengeTitle: challenge.title,
+    runStartedAt: runStart,
+  };
 }
 
 export async function topByEncouragement(): Promise<LeaderRow[]> {
