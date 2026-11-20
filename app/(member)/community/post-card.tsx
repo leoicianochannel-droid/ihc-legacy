@@ -4,7 +4,7 @@ import { useState, useTransition, useRef, useEffect } from "react";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Pin, FileText, MessageCircle, Check, X, Loader2, Bookmark } from "lucide-react";
+import { Pin, FileText, MessageCircle, Check, X, Loader2, Bookmark, Share2 } from "lucide-react";
 import { formatDate, cn } from "@/lib/utils";
 import { PostInteractions } from "./post-interactions";
 import { pinPost, unpinPost, editPost, votePoll, toggleBookmark } from "./actions";
@@ -94,6 +94,56 @@ type Props = {
   myVoteOptionId?: string | null;
   initialBookmarked?: boolean;
 };
+
+function ShareButton({ postId, authorName, category, body }: {
+  postId: string;
+  authorName: string;
+  category: string;
+  body: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleShare() {
+    const url = `${window.location.origin}/community/posts/${postId}`;
+    const excerpt = body.length > 100 ? body.slice(0, 100).trimEnd() + "…" : body;
+    const text = `${authorName} shared a ${category} post on Infinity Hoop 🌀\n\n"${excerpt}"`;
+
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({ title: "Infinity Hoop", text, url });
+        return;
+      } catch {
+        // user cancelled or share failed — fall through to copy
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = url;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleShare}
+      title="Share post"
+      className="shrink-0 rounded-full p-1.5 text-muted-foreground transition-colors hover:text-primary"
+    >
+      {copied
+        ? <Check className="size-4 text-emerald-500" />
+        : <Share2 className="size-4" />
+      }
+    </button>
+  );
+}
 
 export function PostCard({
   post,
@@ -295,6 +345,14 @@ export function PostCard({
               <Bookmark className={cn("size-4", bookmarked && "fill-current")} />
             </button>
           )}
+
+          {/* Share button */}
+          <ShareButton
+            postId={post.id}
+            authorName={author?.firstName ?? "Someone"}
+            category={post.category}
+            body={body}
+          />
 
           {/* Edit/delete menu — only for post owner */}
           {isOwner && !editing && (
