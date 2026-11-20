@@ -83,20 +83,36 @@ export function DecemberChallengeBanner({ userId, decemberCheckins }: Props) {
                 {decemberCheckins}
               </div>
             </div>
-            <Link
-              href="/community"
-              className={cn(
-                "flex-1 rounded-xl bg-amber-500 px-4 py-2.5 text-center text-[13px] font-bold text-white",
-                "hover:bg-amber-600 transition-colors"
-              )}
-            >
-              Log today's workout →
-            </Link>
+            <div className="flex flex-1 flex-col gap-1.5">
+              <Link
+                href="/community"
+                className={cn(
+                  "rounded-xl bg-amber-500 px-4 py-2 text-center text-[13px] font-bold text-white",
+                  "hover:bg-amber-600 transition-colors"
+                )}
+              >
+                Log today's workout →
+              </Link>
+              <Link
+                href="/community/december-challenge"
+                className="text-center text-[11px] font-semibold text-amber-700 underline-offset-2 hover:underline dark:text-amber-400"
+              >
+                Contest rules
+              </Link>
+            </div>
           </div>
         ) : (
-          <p className="mt-2.5 text-[12px] font-semibold text-amber-700 dark:text-amber-400">
-            Starts December 1st — watch for the flow video drop today 🎁
-          </p>
+          <div className="mt-2.5 flex items-center justify-between gap-2">
+            <p className="text-[12px] font-semibold text-amber-700 dark:text-amber-400">
+              Starts December 1st — watch for the flow video drop today 🎁
+            </p>
+            <Link
+              href="/community/december-challenge"
+              className="shrink-0 text-[11px] font-semibold text-amber-700 underline-offset-2 hover:underline dark:text-amber-400"
+            >
+              Rules →
+            </Link>
+          </div>
         )}
       </div>
     </div>
