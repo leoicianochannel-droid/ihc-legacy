@@ -61,7 +61,7 @@ export async function GET() {
       LIMIT 25
     `);
 
-    const data = rows.rows as Array<{
+    const data = Array.from(rows) as Array<{
       id: string;
       first_name: string | null;
       last_name: string | null;
