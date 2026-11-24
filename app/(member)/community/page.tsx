@@ -97,7 +97,7 @@ export default async function CommunityPage({
   const showDecemberBanner = new Date() >= BANNER_START && new Date() <= BANNER_END;
   let decemberCheckins = 0;
   if (showDecemberBanner && meId) {
-    const dec1 = new Date("2026-12-01T00:00:00");
+    const dec1 = new Date("2026-11-28T00:00:00");
     const dec31 = new Date("2026-12-31T23:59:59");
     const [row] = await db
       .select({ count: sql<number>`count(*)::int` })

@@ -3,7 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { db, users } from "@/lib/db";
 import { eq, sql } from "drizzle-orm";
 
-const DEC_START = "2026-12-01T00:00:00.000Z";
+const DEC_START = "2026-11-28T00:00:00.000Z";
 const DEC_END   = "2026-12-31T23:59:59.999Z";
 
 export async function GET() {

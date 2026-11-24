@@ -11,7 +11,7 @@ type Props = {
 };
 
 const STORAGE_KEY = "december-challenge-banner-dismissed-2026";
-const CONTEST_START = new Date("2026-12-01T00:00:00");
+const CONTEST_START = new Date("2026-11-28T00:00:00");
 const CONTEST_END = new Date("2026-12-31T23:59:59");
 
 export function DecemberChallengeBanner({ userId, decemberCheckins }: Props) {
@@ -104,7 +104,7 @@ export function DecemberChallengeBanner({ userId, decemberCheckins }: Props) {
         ) : (
           <div className="mt-2.5 flex items-center justify-between gap-2">
             <p className="text-[12px] font-semibold text-amber-700 dark:text-amber-400">
-              Starts December 1st — watch for the flow video drop today 🎁
+              Starting today — watch for the December Flow video in the feed 🎁
             </p>
             <Link
               href="/community/december-challenge"
