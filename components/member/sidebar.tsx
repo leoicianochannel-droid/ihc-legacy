@@ -34,7 +34,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type SubItem = { href: string; label: string };
+type SubItem = { href: string; label: string; seasonal?: boolean };
 type NavItem = {
   href: string;
   label: string;
@@ -55,6 +55,7 @@ const NAV: NavItem[] = [
     children: [
       { href: "/workouts", label: "Single Sessions" },
       { href: "/challenges", label: "Challenges" },
+      { href: "/community/december-challenge", label: "December Flow Challenge", seasonal: true },
       { href: "/workouts/75", label: "IH 75" },
       { href: "/workouts/lymphatic", label: "Lymphatic Flow" },
     ],
@@ -94,12 +95,21 @@ const NAV: NavItem[] = [
 
 const MOBILE_PRIMARY_COUNT = 4; // first 4 always visible in the bottom nav
 
+const DEC_CHALLENGE_START = new Date("2026-11-28T00:00:00");
+const DEC_CHALLENGE_END   = new Date("2026-12-31T23:59:59");
+
 export function MemberSidebar({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const { signOut } = useClerk();
   const [moreOpen, setMoreOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [showDecChallenge, setShowDecChallenge] = useState(false);
+
+  useEffect(() => {
+    const now = new Date();
+    setShowDecChallenge(now >= DEC_CHALLENGE_START && now <= DEC_CHALLENGE_END);
+  }, []);
 
   async function handleSignOut() {
     await signOut();
@@ -233,7 +243,7 @@ export function MemberSidebar({ isAdmin = false }: { isAdmin?: boolean }) {
                   </button>
                   {isExpanded && (
                     <div className="ml-4 mt-0.5 space-y-0.5 border-l pl-3">
-                      {item.children.map((child) => {
+                      {item.children.filter((c) => !c.seasonal || showDecChallenge).map((child) => {
                         const childCurrent =
                           pathname === child.href ||
                           pathname.startsWith(child.href + "/");
@@ -442,7 +452,7 @@ export function MemberSidebar({ isAdmin = false }: { isAdmin?: boolean }) {
                       </button>
                       {openItems[item.href] && (
                         <div className="mt-1 grid grid-cols-2 gap-2">
-                          {item.children.map((child) => {
+                          {item.children.filter((c) => !c.seasonal || showDecChallenge).map((child) => {
                             const childCurrent =
                               pathname === child.href ||
                               pathname.startsWith(child.href + "/");
