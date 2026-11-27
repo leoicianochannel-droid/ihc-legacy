@@ -92,12 +92,12 @@ export default async function CommunityPage({
   }
 
   // ── December challenge banner (date-gated: Nov 28 – Dec 31 2026) ──────────
-  const BANNER_START = new Date("2026-11-28T00:00:00");
+  const BANNER_START = new Date("2026-11-27T00:00:00");
   const BANNER_END = new Date("2026-12-31T23:59:59");
   const showDecemberBanner = new Date() >= BANNER_START && new Date() <= BANNER_END;
   let decemberCheckins = 0;
   if (showDecemberBanner && meId) {
-    const dec1 = new Date("2026-11-28T00:00:00");
+    const dec1 = new Date("2026-11-27T00:00:00");
     const dec31 = new Date("2026-12-31T23:59:59");
     const [row] = await db
       .select({ count: sql<number>`count(*)::int` })

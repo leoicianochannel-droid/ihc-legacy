@@ -95,7 +95,7 @@ const NAV: NavItem[] = [
 
 const MOBILE_PRIMARY_COUNT = 4; // first 4 always visible in the bottom nav
 
-const DEC_CHALLENGE_START = new Date("2026-11-28T00:00:00");
+const DEC_CHALLENGE_START = new Date("2026-11-27T00:00:00");
 const DEC_CHALLENGE_END   = new Date("2026-12-31T23:59:59");
 
 export function MemberSidebar({ isAdmin = false }: { isAdmin?: boolean }) {

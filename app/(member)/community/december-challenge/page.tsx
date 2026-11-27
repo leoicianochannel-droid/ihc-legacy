@@ -8,7 +8,7 @@ import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
-const CONTEST_START = new Date("2026-11-28T00:00:00.000Z");
+const CONTEST_START = new Date("2026-11-27T00:00:00.000Z");
 const CONTEST_END   = new Date("2026-12-31T23:59:59.999Z");
 
 export default async function DecemberChallengePage() {
@@ -50,7 +50,7 @@ export default async function DecemberChallengePage() {
       {/* Header */}
       <div className="mb-6">
         <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-amber-600 dark:text-amber-400">
-          🏆 November 28 – December 31, 2026
+          🏆 November 27 – December 31, 2026
         </div>
         <h1 className="font-display text-3xl font-bold leading-tight md:text-4xl">
           December Flow Challenge
@@ -167,11 +167,11 @@ export default async function DecemberChallengePage() {
             },
             {
               q: "What counts as a check-in?",
-              a: "Your daily check-in logged in the app after completing the 30-minute flow. Only check-ins made between November 28th and December 31st count.",
+              a: "Your daily check-in logged in the app after completing the 30-minute flow. Only check-ins made between November 27th and December 31st count.",
             },
             {
               q: "How is the Best Community Post winner picked?",
-              a: "The post with the most likes from any member (not just the team) posted between November 28th and December 31st wins. You can post about anything — your progress, a win, how you're feeling, a transformation. Real beats polished.",
+              a: "The post with the most likes from any member (not just the team) posted between November 27th and December 31st wins. You can post about anything — your progress, a win, how you're feeling, a transformation. Real beats polished.",
             },
             {
               q: "How do I get paid if I win?",

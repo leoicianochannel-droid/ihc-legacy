@@ -11,7 +11,7 @@ type Props = {
 };
 
 const STORAGE_KEY = "december-challenge-banner-dismissed-2026";
-const CONTEST_START = new Date("2026-11-28T00:00:00");
+const CONTEST_START = new Date("2026-11-27T00:00:00");
 const CONTEST_END = new Date("2026-12-31T23:59:59");
 
 export function DecemberChallengeBanner({ userId, decemberCheckins }: Props) {
